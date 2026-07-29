@@ -19,6 +19,7 @@ set, dev obfuscation otherwise. Swap for KMS before production.
 from __future__ import annotations
 
 import html
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -175,6 +176,97 @@ async def mock_hook(request: Request):
     """Test double for SAP's HOOK_URL. Echoes the OCI fields it received."""
     form = await request.form()
     return {"received_fields": {k: str(v) for k, v in form.items()}}
+
+
+_NEW_ITEM = re.compile(r"^NEW_ITEM-([A-Z_]+)\[(\d+)\]$")
+
+
+@router.post("/oci/mock-requisition", response_class=HTMLResponse)
+async def mock_requisition(request: Request):
+    """Same test double, rendered as a requisition instead of JSON.
+
+    Point HOOK_URL here to demonstrate the round trip on a machine with no
+    SAP access: the cart posts real OCI fields and this page shows the lines
+    the way a requisition would carry them. Clearly labelled as a simulation —
+    it is a receiver for demos, never a claim to be SAP.
+    """
+    form = await request.form()
+    lines: dict[int, dict[str, str]] = {}
+    other: dict[str, str] = {}
+    for key, value in form.items():
+        m = _NEW_ITEM.match(key)
+        if m:
+            field, idx = m.group(1), int(m.group(2))
+            lines.setdefault(idx, {})[field] = str(value)
+        else:
+            other[key] = str(value)
+
+    def cell(row: dict, field: str) -> str:
+        return html.escape(row.get(field, ""))
+
+    rows = "\n".join(
+        f"""<tr><td class="mono">{n:03d}0</td>
+        <td class="mono">{cell(row, 'VENDORMAT')}</td>
+        <td>{cell(row, 'DESCRIPTION')}</td>
+        <td class="mono num">{cell(row, 'QUANTITY')}</td>
+        <td class="mono">{cell(row, 'UNIT')}</td>
+        <td class="mono num">{cell(row, 'PRICE')}</td>
+        <td class="mono num">{cell(row, 'PRICEUNIT')}</td>
+        <td class="mono">{cell(row, 'CURRENCY')}</td>
+        <td class="mono">{cell(row, 'VENDOR') or '&mdash;'}</td>
+        <td class="mono num">{cell(row, 'LEADTIME')}</td></tr>"""
+        for n, row in sorted(lines.items())
+    )
+    extras = "".join(
+        f"<div><span class='mono'>{html.escape(k)}</span> = "
+        f"<span class='mono'>{html.escape(v)}</span></div>"
+        for k, v in sorted(other.items())
+    )
+    raw = "\n".join(
+        f"{html.escape(k)} = {html.escape(str(v))}" for k, v in sorted(form.items())
+    )
+
+    page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulated SAP receiver — requisition items</title>
+<style>
+ body{{margin:0;background:#E7EAE4;color:#13171B;
+   font:400 15px/1.55 "IBM Plex Sans",Segoe UI,system-ui,sans-serif}}
+ .wrap{{max-width:1100px;margin:0 auto;padding:26px 24px 60px}}
+ .banner{{background:#FBF3D9;border:1px solid #D8C47E;color:#7A5E0E;
+   padding:10px 14px;font-size:.85rem;margin-bottom:22px}}
+ h1{{font-size:1.4rem;margin:0 0 4px}}
+ .sub{{color:#585F63;font-size:.9rem;margin-bottom:20px}}
+ .card{{background:#F4F5F1;border:1px solid #C6CBC2;padding:18px;margin-bottom:20px}}
+ h2{{font-size:1rem;margin:0 0 12px}}
+ table{{width:100%;border-collapse:collapse;font-size:.85rem}}
+ th{{font-size:.62rem;letter-spacing:.13em;text-transform:uppercase;color:#585F63;
+   text-align:left;padding:8px 10px;border-bottom:1px solid #C6CBC2;white-space:nowrap}}
+ td{{padding:8px 10px;border-bottom:1px solid #C6CBC2}}
+ .mono{{font-family:"IBM Plex Mono",Consolas,ui-monospace,monospace}}
+ .num{{text-align:right;font-variant-numeric:tabular-nums}}
+ .scroll{{overflow-x:auto}}
+ pre{{background:#fff;border:1px solid #C6CBC2;padding:12px;font-size:.76rem;
+   overflow:auto;max-height:320px;margin:0}}
+ summary{{cursor:pointer;font-size:.85rem;color:#585F63}}
+</style></head><body><div class="wrap">
+ <div class="banner"><b>Simulated SAP receiver.</b> This page stands in for
+ SAP's <span class="mono">HOOK_URL</span>. These are the exact OCI fields a real
+ S/4HANA system receives from the punchout transfer — nothing here is SAP.</div>
+ <h1>Requisition items received</h1>
+ <div class="sub">{len(lines)} line(s) transferred from the Interlock catalog.</div>
+ <div class="card"><h2>Item overview</h2><div class="scroll"><table>
+   <thead><tr><th>Item</th><th>Vendor mat.</th><th>Short text</th><th>Qty</th>
+   <th>Un</th><th>Net price</th><th>Per</th><th>Crcy</th><th>Vendor</th>
+   <th>Lead t.</th></tr></thead>
+   <tbody>{rows or '<tr><td colspan="10">No NEW_ITEM fields in the post.</td></tr>'}</tbody>
+ </table></div></div>
+ {f'<div class="card"><h2>Other fields</h2>{extras}</div>' if extras else ''}
+ <div class="card"><h2>Raw OCI payload</h2>
+   <details><summary>Show every field exactly as posted</summary>
+   <pre>{raw or '(empty)'}</pre></details></div>
+</div></body></html>"""
+    return HTMLResponse(page)
 
 
 @router.get("/sessions/{session_id}")
