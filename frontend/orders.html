@@ -83,7 +83,8 @@ section{margin-top:34px}
     <h2>Interlock Orders</h2>
     <div style="font-size:.85rem;color:var(--ink-soft);margin:6px 0 4px">
       Sign in with your Interlock account (same login as the admin console).</div>
-    <label>Tenant</label><input id="aTenant" value="demo">
+    <label>Tenant <span style="text-transform:none;letter-spacing:0">(lowercase id, e.g. pravin-co)</span></label>
+    <input id="aTenant" value="demo">
     <label>Email</label><input id="aEmail" type="email">
     <label>Password</label><input id="aPass" type="password">
     <button class="btn" onclick="doLogin()">Log in</button>
@@ -183,8 +184,10 @@ function money(v, cur){ return v==null ? "—" : Number(v).toLocaleString(undefi
 function gate(){ document.getElementById("authOverlay").classList.toggle("show", !TOKEN); }
 async function doLogin(){
   try{
+    const tenant = aTenant.value.trim().toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
+    aTenant.value = tenant;
     const r = await api("/api/auth/login", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({tenant_id:aTenant.value.trim(), email:aEmail.value.trim(), password:aPass.value})});
+      body: JSON.stringify({tenant_id:tenant, email:aEmail.value.trim(), password:aPass.value})});
     TOKEN = r.token; sessionStorage.setItem("interlock_token", TOKEN);
     document.getElementById("authErr").textContent = "";
     gate(); boot();

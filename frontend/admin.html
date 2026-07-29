@@ -119,7 +119,8 @@ tr:hover td{background:#fff}
       <button id="tabLogin" class="on" onclick="authTab('login')">Log in</button>
       <button id="tabReg" onclick="authTab('register')">Create account</button>
     </div>
-    <label>tenant</label><input id="aTenant" value="demo">
+    <label>tenant <span style="text-transform:none;letter-spacing:0">(company id: lowercase letters, numbers, dashes)</span></label>
+    <input id="aTenant" value="demo" placeholder="e.g. pravin-co">
     <label>email</label><input id="aEmail" type="email" placeholder="you@company.com">
     <div id="regOnly" style="display:none"><label>display name</label><input id="aName" placeholder="Your name"></div>
     <label>password <span style="text-transform:none;letter-spacing:0">(min 8 chars)</span></label><input id="aPass" type="password">
@@ -341,7 +342,14 @@ async function api(path, opts={}){
   const res = await fetch(API+path, opts);
   const body = await res.json().catch(()=>({}));
   if(res.status===401 && !path.startsWith("/auth/")){ showAuth(); }
-  if(!res.ok){ const msg = body.detail ? (typeof body.detail==="string"?body.detail:JSON.stringify(body.detail)) : res.statusText; throw new Error(`${res.status}: ${msg}`); }
+  if(!res.ok){
+    let msg = res.statusText;
+    if(typeof body.detail === "string") msg = body.detail;
+    else if(Array.isArray(body.detail))  // pydantic validation errors → readable
+      msg = body.detail.map(d => `${(d.loc||[]).slice(1).join(".")}: ${d.msg}`).join(" · ");
+    else if(body.detail) msg = JSON.stringify(body.detail);
+    throw new Error(`${res.status}: ${msg}`);
+  }
   return body;
 }
 
@@ -356,10 +364,17 @@ function authTab(mode){
   regOnly.style.display = mode==="register" ? "block" : "none";
   authGo.textContent = mode==="register" ? "Create account" : "Log in";
   authErr.textContent = "";
+  aPass.value = "";  // never carry a typed password across modes
+}
+function slugTenant(raw){
+  // Tenant ids are URL-safe slugs (they appear in SAP-facing URLs).
+  return raw.trim().toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"").replace(/^-+/,"");
 }
 async function authSubmit(){
   authErr.textContent = "";
-  const payload = { tenant_id:aTenant.value.trim(), email:aEmail.value.trim(), password:aPass.value };
+  aTenant.value = slugTenant(aTenant.value);
+  if(!aTenant.value){ authErr.textContent = "Tenant id needed — lowercase letters, numbers, dashes (e.g. pravin-co)"; return; }
+  const payload = { tenant_id:aTenant.value, email:aEmail.value.trim(), password:aPass.value };
   if(AUTH_MODE==="register") payload.display_name = aName.value.trim();
   try{
     const r = await api(`/auth/${AUTH_MODE}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
