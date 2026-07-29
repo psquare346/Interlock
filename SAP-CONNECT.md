@@ -47,6 +47,45 @@ That is the whole OCI contract: SAP opens the URL with a generated
 the cart posts `NEW_ITEM-*` fields back to the `HOOK_URL` and the lines land
 in the requisition/PO item grid.
 
+### Pre-flight checklist (the things that actually fail)
+
+Menu paths vary by release — verify each in your own system rather than
+trusting a path here. Ordered by how often they bite.
+
+1. **The embedded browser in SAP GUI.** Classic `ME51N` opens the catalog in
+   an embedded control. Older SAP GUI versions use an **Internet Explorer**
+   engine, which will not run a modern storefront; SAP GUI 7.70+ uses the
+   Chromium-based Edge WebView2 and works fine. Check your GUI version and
+   the WebView2 setting first — if you are on an IE-based control, either
+   test in Fiori/a real browser or ask and a legacy-compatible page can be
+   built. **This is the most likely reason a correctly-configured punchout
+   shows a blank or broken page.**
+2. **Unit of measure must exist in the target system.** We send
+   `NEW_ITEM-UNIT`. `EA` is universally present; `KAR`, `PAK`, `CAR` and
+   friends are not, and a language-mismatched code (`EA` vs `ST`) fails the
+   same way. The seeder ships EA-only for exactly this reason.
+3. **Vendor number.** `NEW_ITEM-VENDOR` must be a vendor that exists and is
+   extended to the purchasing org, or blank. The seeder leaves it blank;
+   pass `--sap-vendor-no` only with a real test vendor.
+4. **Material group.** `NEW_ITEM-MATGROUP` is only sent when the catalog row
+   has one, and it must exist in the target system. The synthetic catalog
+   leaves it empty deliberately.
+5. **Currency** must be valid in the system and consistent with the contract.
+6. **Account assignment.** Punchout lines arrive as free-text (material-less)
+   requisition items, so the requester still supplies cost center / G/L —
+   punchout does not and cannot fill those. Make sure a test user has
+   defaults (purchasing org, plant, document type) that let a PR save.
+7. **Network path from the *user's* workstation.** The browser — not the SAP
+   server — calls the storefront, so the corporate proxy must allow the host.
+   A brand-new domain is sometimes uncategorized and blocked by web filtering.
+   The same browser must also be able to POST back to SAP's `HOOK_URL`, which
+   is an internal URL: both paths have to work from that one machine.
+8. **Popup/window behavior.** Punchout typically opens a new window; a popup
+   blocker or a locked-down GUI theme can swallow it.
+9. **Authorization to use catalogs.** If the Catalogs entry point does not
+   appear at all for a test user despite the web service existing, this is
+   usually authorization or a missing user default rather than the OCI config.
+
 **Where the catalog button appears:**
 
 - Classic GUI: `ME51N` / `ME21N` (and `ME52N`) show a **Catalogs** dropdown

@@ -23,16 +23,23 @@ import httpx
 
 # --- Synthetic vendor and catalog. Invented parts, plausible office prices. --
 SUPPLIER = {"code": "NWOS", "name": "Northwind Office Supply",
-            "sap_vendor_no": "0009100001", "protocol": "hosted",
+            # sap_vendor_no is sent to SAP as NEW_ITEM-VENDOR. A number that
+            # does not exist in the target system errors the requisition line,
+            # so it stays blank until you point it at a real test vendor
+            # (--sap-vendor-no) — SAP simply leaves the field empty.
+            "sap_vendor_no": None, "protocol": "hosted",
             "deployment_mode": "test"}
 CONTRACT_NO = "NWOS-FY26"
 
+# UoM is EA on every line on purpose: EA exists in every SAP system, so a
+# first punchout test cannot fail on an unknown unit of measure. Swap in
+# KAR/PAK/etc. only after confirming those codes exist in the target system.
 CATALOG_CSV = """supplier_part_id,description,uom,unit_price,currency,price_unit,unspsc,material_group,manufacturer,manufacturer_part_id,lead_time_days,long_description
-NW-1001,Copy paper A4 80gsm white,KAR,32.40,USD,1,14111507,,Northwind,CP-A4-80,3,Carton of 5 reams (2500 sheets) multipurpose copy paper.
-NW-1002,Ballpoint pen blue medium,PAK,4.85,USD,1,44121707,,Northwind,BP-BLU-M,2,Pack of 10 retractable ballpoint pens.
+NW-1001,Copy paper A4 80gsm carton,EA,32.40,USD,1,14111507,,Northwind,CP-A4-80,3,Carton of 5 reams (2500 sheets) multipurpose copy paper.
+NW-1002,Ballpoint pen blue pack of 10,EA,4.85,USD,1,44121707,,Northwind,BP-BLU-M,2,Pack of 10 retractable ballpoint pens.
 NW-1003,Toner cartridge black high yield,EA,89.50,USD,1,44103105,,Northwind,TN-9000XL,5,High-yield black toner approx 9000 pages.
-NW-1004,File folder manila letter,PAK,11.20,USD,1,44122011,,Northwind,FF-MAN-100,4,Box of 100 manila file folders.
-NW-1005,Whiteboard marker assorted,PAK,7.95,USD,1,44121708,,Northwind,WM-AST-4,3,Pack of 4 dry-erase markers.
+NW-1004,File folder manila box of 100,EA,11.20,USD,1,44122011,,Northwind,FF-MAN-100,4,Box of 100 manila file folders.
+NW-1005,Whiteboard marker pack of 4,EA,7.95,USD,1,44121708,,Northwind,WM-AST-4,3,Pack of 4 dry-erase markers.
 NW-1006,Packing tape 48mm x 66m,EA,2.65,USD,1,31201503,,Northwind,PT-48-66,2,
 """
 
@@ -80,7 +87,15 @@ def main() -> int:
     ap.add_argument("--password", required=True)
     ap.add_argument("--vendor-email", default="orders@northwind-demo.test")
     ap.add_argument("--vendor-password", default="vendor-demo-2026")
+    ap.add_argument("--sap-vendor-no", default=None,
+                    help="Existing test vendor number in the target SAP system. "
+                         "Left blank by default so punchout never sends an "
+                         "unknown vendor number.")
     args = ap.parse_args()
+
+    supplier_payload = dict(SUPPLIER)
+    if args.sap_vendor_no:
+        supplier_payload["sap_vendor_no"] = args.sap_vendor_no
 
     c = httpx.Client(base_url=args.base.rstrip("/"), timeout=120)
 
@@ -105,7 +120,7 @@ def main() -> int:
     print("  + logged in")
 
     # ---- supplier + contract ---------------------------------------------
-    r = c.post("/api/suppliers", headers=auth, json=SUPPLIER)
+    r = c.post("/api/suppliers", headers=auth, json=supplier_payload)
     if r.status_code == 409:
         print("  = supplier exists")
     else:
