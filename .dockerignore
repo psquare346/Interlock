@@ -1,0 +1,10 @@
+.git/
+.github/
+backend/.venv/
+backend/.pytest_cache/
+**/__pycache__/
+*.db
+.env
+data/
+files/
+frontend/admin.html.bak

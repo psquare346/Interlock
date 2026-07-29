@@ -10,6 +10,20 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: interlock
+          POSTGRES_PASSWORD: interlock
+          POSTGRES_DB: interlock_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U interlock"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,4 +32,18 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r requirements.txt
-      - run: python -m pytest tests -q
+
+      - name: Tests on SQLite
+        run: python -m pytest tests -q
+
+      - name: Alembic migration applies on Postgres
+        env:
+          DATABASE_URL: postgresql+psycopg://interlock:interlock@localhost:5432/interlock_test
+        run: |
+          python -m alembic upgrade head
+          python -m alembic check
+
+      - name: Tests on Postgres
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://interlock:interlock@localhost:5432/interlock_test
+        run: python -m pytest tests -q

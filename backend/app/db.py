@@ -1,7 +1,8 @@
 """SQLite locally, Postgres in production.
 
-Local mode uses create_all; the Postgres path should move to Alembic
-migrations before anything real (README, "Before this leaves your laptop").
+Schema management (SCALE.md D1): SQLite local mode still uses create_all for
+zero-setup dev; any non-SQLite database is managed exclusively by Alembic
+(`alembic upgrade head`) and init_db never touches its DDL.
 """
 
 from __future__ import annotations
@@ -23,7 +24,9 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 
 
 def init_db() -> None:
-    Base.metadata.create_all(engine)
+    if engine.dialect.name == "sqlite":
+        Base.metadata.create_all(engine)
+    # Postgres schema comes from `alembic upgrade head` — deliberately not here.
 
 
 def get_db():

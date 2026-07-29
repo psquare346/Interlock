@@ -9,8 +9,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .db import init_db
-from .api import admin, auth, catalog, policy, pricing, punchout
+from .config import get_settings
+from .db import SessionLocal, init_db
+from .api import admin, auth, catalog, jobs, policy, pricing, punchout
+from .services.jobs import Worker
 
 FRONTEND = Path(__file__).resolve().parent.parent.parent / "frontend"
 
@@ -18,7 +20,12 @@ FRONTEND = Path(__file__).resolve().parent.parent.parent / "frontend"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    settings = get_settings()
+    worker = Worker(SessionLocal, poll_seconds=settings.JOB_POLL_SECONDS)
+    if settings.RUN_WORKER:
+        worker.start()
     yield
+    worker.stop()
 
 
 app = FastAPI(
@@ -43,9 +50,14 @@ app.include_router(admin.router, prefix="/api", tags=["admin"])
 app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
 app.include_router(pricing.router, prefix="/api/pricing", tags=["pricing"])
 app.include_router(policy.router, prefix="/api/policy", tags=["policy"])
+app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 # Punchout stays token-free by design: SAP and supplier systems call it, not
 # logged-in admin users. Production protects it with TLS + IP allowlisting.
 app.include_router(punchout.router, prefix="/api/punchout", tags=["punchout"])
+# Versioned alias for every URL that gets hard-coded into SAP configuration
+# (SCALE.md D7). Basis teams configure /api/v1/...; breaking it later means a
+# change request at every customer, so it never changes shape.
+app.include_router(punchout.router, prefix="/api/v1/punchout", include_in_schema=False)
 
 
 @app.get("/api/health")

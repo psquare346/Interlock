@@ -4,11 +4,13 @@ __pycache__/
 .venv/
 .pytest_cache/
 
-# Local data — never commit databases or secrets
+# Local data — never commit databases, uploads, or secrets
 *.db
 *.sqlite3
 .env
 backend/.env
+data/
+backend/data/
 
 # OS / editor noise
 .DS_Store

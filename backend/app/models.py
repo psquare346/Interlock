@@ -7,6 +7,9 @@ Conventions:
 - Every row carries tenant_id. Local mode trusts the request parameter;
   production derives it from the authenticated session (see README).
 - Enums are stored by value (lowercase strings) so raw SQL stays legible.
+- Every FK has a matching relationship(): SQLAlchemy only orders cross-table
+  INSERTs within a flush along relationship() edges, not raw FK columns.
+  SQLite (FKs unenforced) hid this; Postgres rejects children before parents.
 """
 
 from __future__ import annotations
@@ -50,6 +53,21 @@ class Tenant(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class VendorOrg(Base):
+    """Global vendor identity — the network model. A vendor registers once on
+    the platform; per-tenant Supplier rows link here so one vendor login can
+    serve every customer that buys from them. Tenant-scoped data (contracts,
+    prices, catalogs) stays on the per-tenant rows."""
+
+    __tablename__ = "vendor_orgs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(200))
+    contact_email: Mapped[str | None] = mapped_column(String(200), unique=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 class SupplierProtocol(str, enum.Enum):
     CXML = "cxml"
     OCI = "oci"
@@ -62,6 +80,10 @@ class Supplier(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    # Optional link to the vendor's global platform identity (network model).
+    vendor_org_id: Mapped[str | None] = mapped_column(ForeignKey("vendor_orgs.id"))
+    tenant: Mapped[Tenant] = relationship()
+    vendor_org: Mapped[VendorOrg | None] = relationship()
     code: Mapped[str] = mapped_column(String(40))
     name: Mapped[str] = mapped_column(String(200))
     sap_vendor_no: Mapped[str | None] = mapped_column(String(20))
@@ -94,6 +116,8 @@ class Contract(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
     supplier_id: Mapped[str | None] = mapped_column(ForeignKey("suppliers.id"))
+    tenant: Mapped[Tenant] = relationship()
+    supplier: Mapped[Supplier | None] = relationship()
     contract_no: Mapped[str] = mapped_column(String(60))
     sap_agreement_no: Mapped[str | None] = mapped_column(String(20))
     valid_from: Mapped[date] = mapped_column(Date)
@@ -132,6 +156,8 @@ class CatalogVersion(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
     supplier_id: Mapped[str] = mapped_column(ForeignKey("suppliers.id"))
+    tenant: Mapped[Tenant] = relationship()
+    supplier: Mapped[Supplier] = relationship()
     version_no: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[VersionStatus] = mapped_column(
         _enum(VersionStatus), default=VersionStatus.LOADED
@@ -155,6 +181,8 @@ class CatalogItem(Base):
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
     version_id: Mapped[str] = mapped_column(ForeignKey("catalog_versions.id"))
     supplier_id: Mapped[str] = mapped_column(ForeignKey("suppliers.id"))
+    tenant: Mapped[Tenant] = relationship()
+    supplier: Mapped[Supplier] = relationship()
 
     supplier_part_id: Mapped[str | None] = mapped_column(String(120))
     description: Mapped[str | None] = mapped_column(String(40))   # SAP TXZ01 limit
@@ -202,6 +230,9 @@ class PriceTier(Base):
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
     item_id: Mapped[str] = mapped_column(ForeignKey("catalog_items.id"))
     contract_id: Mapped[str | None] = mapped_column(ForeignKey("contracts.id"))
+    tenant: Mapped[Tenant] = relationship()
+    item: Mapped[CatalogItem] = relationship()
+    contract: Mapped[Contract | None] = relationship()
 
     min_qty: Mapped[int] = mapped_column(Integer)
     max_qty: Mapped[int | None] = mapped_column(Integer)  # None = open-ended top tier
@@ -262,6 +293,8 @@ class Policy(Base):
         _enum(PolicyStatus), default=PolicyStatus.DRAFT
     )
     contract_id: Mapped[str | None] = mapped_column(ForeignKey("contracts.id"))
+    tenant: Mapped[Tenant] = relationship()
+    contract: Mapped[Contract | None] = relationship()
 
     # What the author asked for vs. what activation granted after the clamp.
     requested_from: Mapped[date] = mapped_column(Date)
@@ -293,6 +326,7 @@ class PolicyRule(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
     policy_id: Mapped[str] = mapped_column(ForeignKey("policies.id"))
+    tenant: Mapped[Tenant] = relationship()
     code: Mapped[str] = mapped_column(String(60))
     description: Mapped[str] = mapped_column(Text, default="")
     scope: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -317,6 +351,7 @@ class PolicyEvaluation(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    tenant: Mapped[Tenant] = relationship()
     cart_ref: Mapped[str | None] = mapped_column(String(120))
     line_ref: Mapped[str | None] = mapped_column(String(120))
     policy_id: Mapped[str | None] = mapped_column(String(32))
@@ -354,6 +389,7 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    tenant: Mapped[Tenant] = relationship()
     email: Mapped[str] = mapped_column(String(200))
     display_name: Mapped[str] = mapped_column(String(120))
     # PBKDF2-HMAC-SHA256, 600k iterations, per-user random salt.
@@ -378,6 +414,7 @@ class AuthToken(Base):
     # replayed as live sessions. The client holds the only copy of the token.
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    user: Mapped[User] = relationship()
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
@@ -391,6 +428,7 @@ class PunchoutSession(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    tenant: Mapped[Tenant] = relationship()
     protocol: Mapped[str] = mapped_column(String(10), default="oci")  # oci | cxml
     oci_version: Mapped[str | None] = mapped_column(String(5))
     # OCI: the SAP HOOK_URL the cart posts back to. Stored encrypted at rest.
@@ -402,3 +440,41 @@ class PunchoutSession(Base):
     cart: Mapped[list | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     returned_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+# --------------------------------------------------------------------------
+# Background jobs
+# --------------------------------------------------------------------------
+
+class JobStatus(str, enum.Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"      # will be retried until attempts == max_attempts
+    DEAD = "dead"          # exhausted retries; needs a human
+
+
+class Job(Base):
+    """Durable work queue (SCALE.md D5). Long-running work (big ingestions,
+    leakage audits, vendor delivery) is enqueued here and executed by the
+    worker loop in services/jobs.py, never inside an HTTP request. Failures
+    are rows, not log lines: every attempt and error is queryable."""
+
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    tenant: Mapped[Tenant] = relationship()
+    kind: Mapped[str] = mapped_column(String(60), index=True)
+    status: Mapped[JobStatus] = mapped_column(
+        _enum(JobStatus), default=JobStatus.QUEUED, index=True
+    )
+    payload: Mapped[dict | None] = mapped_column(JSON)
+    result: Mapped[dict | None] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    created_by: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)

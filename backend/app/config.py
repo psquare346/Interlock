@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./punchout.db"
     PGVECTOR_ENABLED: bool = False
 
+    # --- Storage & background jobs (SCALE.md D5/D6) ---
+    STORAGE_DIR: str = "./data"
+    RUN_WORKER: bool = True          # in-process worker; off when real workers exist
+    JOB_POLL_SECONDS: float = 1.0
+
     # --- AI provider (START-HERE §1) ---
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
