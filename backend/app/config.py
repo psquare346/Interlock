@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +19,18 @@ class Settings(BaseSettings):
     # --- Database (START-HERE §2) ---
     DATABASE_URL: str = "sqlite:///./punchout.db"
     PGVECTOR_ENABLED: bool = False
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _normalize_db_url(cls, v: str) -> str:
+        # Managed hosts (Render, Heroku, ...) hand out postgres:// URLs;
+        # SQLAlchemy 2 needs an explicit driver. Normalize so their connection
+        # string works verbatim.
+        if v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+psycopg://", 1)
+        if v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+psycopg://", 1)
+        return v
 
     # --- Storage & background jobs (SCALE.md D5/D6) ---
     STORAGE_DIR: str = "./data"
