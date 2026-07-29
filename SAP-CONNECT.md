@@ -42,6 +42,15 @@ Row 30's name must be spelled `HOOK_URL` in capitals — that is the OCI
 standard name SAP looks for. No trailing slash on the URL, no quotes
 anywhere, and no `<` `>` characters.
 
+**The switch that actually shows the button: set the Default Indicator on
+the web service entry.** The button in `ME51N`/`ME21N` reads customizing
+view `MMPUROCI_ENTIT_V` (the same IMG node; also reachable via `SM30`), and
+with no entry flagged as default, **no catalog appears at all** — even with
+a perfect call structure. Exactly one entry carries the flag; standard
+`ME51N`/`ME21N` calls only that default catalog (multi-catalog selection
+needs extra development around `MMPUROCI_CALL`, inactive by default).
+Access can be restricted per user — see SAP KBA 3141117.
+
 That is the whole OCI contract: SAP opens the URL with a generated
 `HOOK_URL`; Interlock redirects the browser to the storefront; on transfer,
 the cart posts `NEW_ITEM-*` fields back to the `HOOK_URL` and the lines land
