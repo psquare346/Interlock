@@ -11,7 +11,10 @@ from fastapi.responses import FileResponse
 
 from .config import get_settings
 from .db import SessionLocal, init_db
-from .api import admin, auth, catalog, jobs, policy, pricing, punchout
+from .api import (
+    admin, audit, auth, catalog, jobs, orders, po, policy, pricing, punchout, vendor,
+)
+from .services import audit as _audit_handlers  # noqa: F401 — registers job handlers
 from .services.jobs import Worker
 
 FRONTEND = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -51,13 +54,17 @@ app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
 app.include_router(pricing.router, prefix="/api/pricing", tags=["pricing"])
 app.include_router(policy.router, prefix="/api/policy", tags=["policy"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(orders.router, prefix="/api/orders", tags=["orders"])
+app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
+app.include_router(vendor.router, prefix="/api/vendor", tags=["vendor"])
 # Punchout stays token-free by design: SAP and supplier systems call it, not
 # logged-in admin users. Production protects it with TLS + IP allowlisting.
 app.include_router(punchout.router, prefix="/api/punchout", tags=["punchout"])
-# Versioned alias for every URL that gets hard-coded into SAP configuration
+# Versioned aliases for every URL that gets hard-coded into SAP configuration
 # (SCALE.md D7). Basis teams configure /api/v1/...; breaking it later means a
 # change request at every customer, so it never changes shape.
 app.include_router(punchout.router, prefix="/api/v1/punchout", include_in_schema=False)
+app.include_router(po.router, prefix="/api/v1/po", tags=["po"])
 
 
 @app.get("/api/health")
@@ -73,3 +80,13 @@ def landing():
 @app.get("/admin", include_in_schema=False)
 def admin_ui():
     return FileResponse(FRONTEND / "admin.html")
+
+
+@app.get("/orders", include_in_schema=False)
+def orders_ui():
+    return FileResponse(FRONTEND / "orders.html")
+
+
+@app.get("/vendor", include_in_schema=False)
+def vendor_ui():
+    return FileResponse(FRONTEND / "vendor.html")

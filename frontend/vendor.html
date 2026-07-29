@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interlock Vendor — your order queue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E7EAE4; --paper-raised:#F4F5F1; --ink:#13171B; --ink-soft:#585F63;
+  --rule:#C6CBC2; --cobalt:#1E3ED8; --oxide:#9E3A20; --green:#1F6B3A;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:400 15px/1.55 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:"Bricolage Grotesque",Georgia,serif;font-weight:800;letter-spacing:-.02em;margin:0}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+.nav{border-bottom:1px solid var(--rule);position:sticky;top:0;background:var(--paper);z-index:20}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:58px;gap:16px}
+.mark{font-family:"Bricolage Grotesque",serif;font-weight:800;font-size:1.1rem;display:flex;align-items:center;gap:9px}
+.mark span{width:10px;height:10px;background:var(--green);border-radius:2px;display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:22px}
+.card{background:var(--paper-raised);border:1px solid var(--rule);padding:20px}
+.card h3{font-size:1rem;font-weight:600;font-family:"IBM Plex Sans",sans-serif;margin-bottom:14px}
+label{display:block;font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:12px 0 4px}
+input{width:100%;padding:9px 11px;border:1px solid var(--rule);background:#fff;font:inherit;border-radius:2px}
+input:focus{outline:2px solid var(--cobalt);outline-offset:1px}
+.btn{display:inline-block;background:var(--cobalt);color:#fff;border:none;font:500 .88rem "IBM Plex Sans",sans-serif;padding:10px 18px;border-radius:2px;cursor:pointer;margin-top:14px}
+.btn:hover{background:#152FAF}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--rule)}
+.btn.sm{padding:5px 10px;font-size:.78rem;margin:0}
+.btn.green{background:var(--green)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;font-size:.86rem}
+th{font-family:"IBM Plex Mono",monospace;font-size:.64rem;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft);text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule)}
+td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+tr:hover td{background:#fff}
+tr.click{cursor:pointer}
+.table-scroll{overflow-x:auto}
+.badge{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.08em;padding:3px 8px;border-radius:2px;border:1px solid var(--rule);white-space:nowrap}
+.badge.received{background:#FBF3D9;border-color:#D8C47E;color:#7A5E0E}
+.badge.acknowledged{background:#E4E9FB;border-color:#9DB1FF;color:var(--cobalt)}
+.badge.shipped,.badge.delivered{background:#E2EFE6;border-color:#9EC4AA;color:var(--green)}
+.badge.cancelled{background:#F6E3DC;border-color:#D3A08D;color:var(--oxide)}
+.kpi{display:flex;gap:26px;flex-wrap:wrap;margin:14px 0}
+.kpi div b{font-family:"Bricolage Grotesque",serif;font-size:1.7rem;display:block}
+.kpi div span{font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+.toast{position:fixed;bottom:22px;right:22px;background:var(--ink);color:#fff;padding:12px 18px;font-size:.86rem;border-radius:3px;opacity:0;transition:opacity .2s;z-index:50;max-width:440px}
+.toast.show{opacity:1}
+.overlay{position:fixed;inset:0;background:rgba(19,23,27,.55);display:none;align-items:center;justify-content:center;z-index:40}
+.overlay.show{display:flex}
+.authcard{background:var(--paper-raised);border:1px solid var(--rule);padding:30px;width:min(420px,92vw)}
+.authtabs{display:flex;gap:0;border:1px solid var(--rule);margin:12px 0}
+.authtabs button{flex:1;padding:8px;background:none;border:none;font:600 .85rem "IBM Plex Sans",sans-serif;cursor:pointer;color:var(--ink-soft)}
+.authtabs button.on{background:var(--ink);color:#fff}
+.autherr{color:var(--oxide);font-size:.83rem;margin-top:10px;min-height:1.2em}
+.explain{font-size:.95rem;color:var(--ink-soft);max-width:70ch;margin:10px 0 26px;border-left:3px solid var(--green);padding-left:14px}
+.timeline{list-style:none;margin:8px 0 0;padding:0;font-size:.85rem}
+.timeline li{padding:7px 0 7px 18px;border-left:2px solid var(--rule);position:relative}
+.timeline li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--green);position:absolute;left:-5px;top:12px}
+.timeline .when{font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--ink-soft)}
+.pill-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.backlink{font-size:.82rem;cursor:pointer;color:var(--cobalt);background:none;border:none;font-family:inherit;padding:0}
+</style>
+</head>
+<body>
+
+<div class="nav"><div class="wrap">
+  <div class="mark"><span></span>Interlock Vendor</div>
+  <div style="display:flex;gap:18px;align-items:center">
+    <span class="mono" id="whoami" style="font-size:.72rem;color:var(--ink-soft)"></span>
+    <button class="btn ghost sm" onclick="logout()">Log out</button>
+  </div>
+</div></div>
+
+<div class="overlay" id="authOverlay">
+  <div class="authcard">
+    <h2>Vendor portal</h2>
+    <div style="font-size:.85rem;color:var(--ink-soft);margin:6px 0 4px">
+      One account serves every customer you supply on Interlock.</div>
+    <div class="authtabs">
+      <button id="tabLogin" class="on" onclick="tab('login')">Log in</button>
+      <button id="tabReg" onclick="tab('register')">Register with invite</button>
+    </div>
+    <div id="regOnly" style="display:none">
+      <label>Invite code (from your customer)</label><input id="aInvite">
+      <label>Company contact name</label><input id="aName">
+    </div>
+    <label>Email</label><input id="aEmail" type="email">
+    <label>Password</label><input id="aPass" type="password">
+    <button class="btn" id="authBtn" onclick="submitAuth()">Log in</button>
+    <div class="autherr" id="authErr"></div>
+  </div>
+</div>
+
+<div class="wrap">
+
+<section id="listView">
+  <h1 style="margin-top:30px">Order queue</h1>
+  <p class="explain">Purchase orders from all your Interlock customers, in one place.
+    Acknowledge when you accept an order; post the tracking number when it ships —
+    your customer sees it instantly, keyed to their SAP PO number.</p>
+  <div class="kpi" id="kpis"></div>
+  <div class="pill-row" id="customers"></div>
+  <div class="card" style="margin-top:16px"><div class="table-scroll">
+    <table id="queueTable">
+      <thead><tr><th>Customer</th><th>PO number</th><th>Status</th><th>Total</th><th>Received</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div></div>
+</section>
+
+<section id="detailView" style="display:none">
+  <button class="backlink" onclick="showList()">← Queue</button>
+  <h1 style="margin-top:12px">PO <span id="dPo" class="mono"></span></h1>
+  <div class="kpi" id="dKpis"></div>
+  <div class="grid">
+    <div class="card" style="grid-column:1/-1">
+      <h3>Lines</h3>
+      <div class="table-scroll"><table id="dLines">
+        <thead><tr><th>#</th><th>Part</th><th>Description</th><th>Qty</th><th>Unit price</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <h3>Actions</h3>
+      <button class="btn" id="ackBtn" onclick="ack()">Acknowledge order</button><br>
+      <label>Tracking number</label><input id="trackNo" placeholder="1Z999AA10123456784">
+      <label>Carrier</label><input id="carrier" placeholder="UPS">
+      <button class="btn green" id="shipBtn" onclick="ship()">Mark shipped</button>
+    </div>
+    <div class="card">
+      <h3>Timeline</h3>
+      <ul class="timeline" id="dEvents"></ul>
+    </div>
+  </div>
+</section>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let TOKEN = sessionStorage.getItem("interlock_vendor_token") || null;
+let MODE = "login";
+let CURRENT = null;
+
+async function api(path, opts={}){
+  opts.headers = Object.assign({}, opts.headers, TOKEN ? {"Authorization":"Bearer "+TOKEN} : {});
+  const r = await fetch(path, opts);
+  if(r.status === 401 && !path.endsWith("/login")){ sessionStorage.removeItem("interlock_vendor_token"); TOKEN=null; gate(); throw new Error("Logged out"); }
+  const data = r.headers.get("content-type")?.includes("json") ? await r.json() : await r.text();
+  if(!r.ok) throw new Error(typeof data === "object" ? (data.detail || JSON.stringify(data)) : data);
+  return data;
+}
+function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), 3400); }
+function money(v, cur){ return v==null ? "—" : Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " " + (cur||""); }
+function gate(){ document.getElementById("authOverlay").classList.toggle("show", !TOKEN); }
+
+function tab(m){
+  MODE = m;
+  tabLogin.classList.toggle("on", m==="login");
+  tabReg.classList.toggle("on", m==="register");
+  regOnly.style.display = m==="register" ? "block" : "none";
+  authBtn.textContent = m==="register" ? "Create account" : "Log in";
+}
+async function submitAuth(){
+  const err = document.getElementById("authErr");
+  err.textContent = "";
+  try{
+    if(MODE==="register"){
+      await api("/api/vendor/register", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({invite_code:aInvite.value.trim(), email:aEmail.value.trim(),
+                              display_name:aName.value.trim(), password:aPass.value})});
+      tab("login"); err.textContent = "Account created — log in.";
+      return;
+    }
+    const r = await api("/api/vendor/login", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({email:aEmail.value.trim(), password:aPass.value})});
+    TOKEN = r.token; sessionStorage.setItem("interlock_vendor_token", TOKEN);
+    gate(); boot();
+  }catch(e){ err.textContent = e.message; }
+}
+function logout(){ TOKEN=null; sessionStorage.removeItem("interlock_vendor_token"); gate(); }
+function showList(){ detailView.style.display="none"; listView.style.display="block"; loadQueue(); }
+
+async function boot(){
+  try{
+    const me = await api("/api/vendor/me");
+    document.getElementById("whoami").textContent = me.email + " · " + (me.vendor_org||"");
+    document.getElementById("customers").innerHTML =
+      me.customers.map(c=>`<span class="badge">${c.tenant} · ${c.supplier_code}</span>`).join("") ||
+      `<span style="font-size:.85rem;color:var(--ink-soft)">No customers connected yet — ask your customer to link you.</span>`;
+    loadQueue();
+  }catch(e){}
+}
+
+async function loadQueue(){
+  const orders = await api("/api/vendor/orders");
+  const todo = orders.filter(o=>o.status==="received").length;
+  const moving = orders.filter(o=>["acknowledged"].includes(o.status)).length;
+  document.getElementById("kpis").innerHTML =
+    `<div><b>${todo}</b><span>new — need acknowledgement</span></div>`+
+    `<div><b>${moving}</b><span>to ship</span></div>`+
+    `<div><b>${orders.length}</b><span>total</span></div>`;
+  document.querySelector("#queueTable tbody").innerHTML = orders.map(o=>`
+    <tr class="click" onclick="openOrder('${o.id}')">
+      <td>${o.customer}</td>
+      <td class="mono">${o.sap_po_number}</td>
+      <td><span class="badge ${o.status}">${o.status}</span></td>
+      <td class="mono">${money(o.total, o.currency)}</td>
+      <td class="mono">${o.created_at.slice(0,16).replace("T"," ")}</td></tr>`).join("")
+    || `<tr><td colspan="5" style="color:var(--ink-soft)">No orders yet.</td></tr>`;
+}
+
+async function openOrder(id){
+  const o = await api("/api/vendor/orders/"+id);
+  CURRENT = o;
+  listView.style.display="none"; detailView.style.display="block";
+  document.getElementById("dPo").textContent = o.sap_po_number;
+  document.getElementById("dKpis").innerHTML =
+    `<div><b>${o.customer}</b><span>customer</span></div>`+
+    `<div><b>${money(o.total,o.currency)}</b><span>total</span></div>`+
+    `<div><b><span class="badge ${o.status}">${o.status}</span></b><span>status</span></div>`;
+  document.querySelector("#dLines tbody").innerHTML = o.lines.map(l=>`<tr>
+    <td class="mono">${l.line_no}</td><td class="mono">${l.part||"—"}</td><td>${l.description||""}</td>
+    <td class="mono">${l.quantity} ${l.uom||""}</td>
+    <td class="mono">${money(l.unit_price,l.currency)}</td></tr>`).join("");
+  document.getElementById("dEvents").innerHTML = o.events.map(e=>{
+    const extra = e.data && e.data.tracking_number ? ` — ${e.data.carrier||""} ${e.data.tracking_number}` : "";
+    return `<li><b>${e.type}</b>${extra}<br><span class="when">${e.created_at.slice(0,16).replace("T"," ")}</span></li>`;
+  }).join("");
+  document.getElementById("ackBtn").disabled = o.status !== "received";
+  document.getElementById("shipBtn").disabled = !["received","acknowledged"].includes(o.status);
+}
+
+async function ack(){
+  try{ await api(`/api/vendor/orders/${CURRENT.id}/acknowledge`, {method:"POST"}); toast("Acknowledged"); openOrder(CURRENT.id); }
+  catch(e){ toast(e.message); }
+}
+async function ship(){
+  const tn = document.getElementById("trackNo").value.trim();
+  if(!tn){ toast("Enter the tracking number"); return; }
+  try{
+    await api(`/api/vendor/orders/${CURRENT.id}/ship`, {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({tracking_number: tn, carrier: document.getElementById("carrier").value.trim()})});
+    toast("Marked shipped — your customer can see the tracking now");
+    openOrder(CURRENT.id);
+  }catch(e){ toast(e.message); }
+}
+
+gate();
+if(TOKEN) boot();
+</script>
+</body>
+</html>

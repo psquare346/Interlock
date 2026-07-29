@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Minimal ORDERS05 IDoc-XML, the shape S/4 output management produces.
+     Push it with curl:
+       curl -X POST "http://localhost:8080/api/v1/po/receive?tenant_id=demo"
+            -H "X-PO-Key: <key from the Orders page>"
+            -H "Content-Type: application/xml"
+            with the request body set to this file (curl flag: data-binary @po_sample_orders05.xml)
+-->
+<ORDERS05>
+  <IDOC BEGIN="1">
+    <E1EDK01 SEGMENT="1">
+      <BELNR>4500001235</BELNR>
+      <CURCY>USD</CURCY>
+    </E1EDK01>
+    <E1EDK03 SEGMENT="1">
+      <IDDAT>012</IDDAT>
+      <DATUM>20260729</DATUM>
+    </E1EDK03>
+    <E1EDKA1 SEGMENT="1">
+      <PARVW>LF</PARVW>
+      <PARTN>0000100001</PARTN>
+    </E1EDKA1>
+    <E1EDP01 SEGMENT="1">
+      <POSEX>00010</POSEX>
+      <MENGE>100</MENGE>
+      <MENEE>EA</MENEE>
+      <NETPR>0.42</NETPR>
+      <E1EDP19 SEGMENT="1">
+        <QUALF>002</QUALF>
+        <IDTNR>A-1</IDTNR>
+        <KTEXT>Schraube M8</KTEXT>
+      </E1EDP19>
+    </E1EDP01>
+  </IDOC>
+</ORDERS05>

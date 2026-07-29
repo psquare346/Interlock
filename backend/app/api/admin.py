@@ -17,9 +17,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Contract, Supplier, SupplierProtocol, Tenant, User
+from ..models import Contract, Supplier, SupplierProtocol, Tenant, User, VendorOrg
 from ..services.auth import get_current_user, require
 from ..services.secrets import encrypt
+from ..services.vendor_auth import hash_invite, new_invite_code
 
 router = APIRouter()
 
@@ -27,7 +28,31 @@ router = APIRouter()
 @router.get("/tenants")
 def my_tenant(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     tenant = db.get(Tenant, user.tenant_id)
-    return [{"id": tenant.id, "name": tenant.name}] if tenant else []
+    if tenant is None:
+        return []
+    return [{"id": tenant.id, "name": tenant.name,
+             "po_key_configured": tenant.po_key_hash is not None}]
+
+
+@router.post("/tenants/po-key")
+def rotate_po_key(
+    user: User = Depends(require("manage_master_data")),
+    db: Session = Depends(get_db),
+):
+    """Generate (or rotate) the integration key SAP sends on /api/v1/po/receive.
+    The plaintext is returned exactly once — only its hash is stored."""
+    import hashlib
+    import secrets as _secrets
+
+    key = _secrets.token_urlsafe(32)
+    tenant = db.get(Tenant, user.tenant_id)
+    tenant.po_key_hash = hashlib.sha256(key.encode()).hexdigest()
+    db.commit()
+    return {
+        "po_key": key,
+        "endpoint": "/api/v1/po/receive?tenant_id=" + tenant.id,
+        "note": "Store this now — it is not retrievable later, only rotatable.",
+    }
 
 
 # --------------------------------------------------------------------------
@@ -98,6 +123,52 @@ def list_suppliers(user: User = Depends(get_current_user), db: Session = Depends
         select(Supplier).where(Supplier.tenant_id == user.tenant_id).order_by(Supplier.code)
     ).all()
     return [_supplier_out(s) for s in rows]
+
+
+# --------------------------------------------------------------------------
+# Vendor orgs — connect a supplier record to a global vendor identity
+# --------------------------------------------------------------------------
+
+class VendorOrgIn(BaseModel):
+    name: str | None = None
+    contact_email: str | None = None
+
+
+@router.post("/suppliers/{supplier_id}/vendor-org", status_code=201)
+def invite_vendor(
+    supplier_id: str,
+    body: VendorOrgIn,
+    user: User = Depends(require("manage_master_data")),
+    db: Session = Depends(get_db),
+):
+    """Create (or re-invite) the vendor org behind a supplier and return a
+    single-use invite code the vendor uses to register their platform login.
+    One vendor org can serve many customers — if this supplier is already
+    linked, this just issues a fresh invite code."""
+    supplier = db.get(Supplier, supplier_id)
+    if supplier is None or supplier.tenant_id != user.tenant_id:
+        raise HTTPException(404, "Supplier not found")
+
+    org = db.get(VendorOrg, supplier.vendor_org_id) if supplier.vendor_org_id else None
+    if org is None:
+        org = VendorOrg(
+            name=body.name or supplier.name,
+            contact_email=(body.contact_email or None),
+        )
+        db.add(org)
+        db.flush()
+        supplier.vendor_org_id = org.id
+
+    code = new_invite_code()
+    org.invite_code_hash = hash_invite(code)
+    db.commit()
+    return {
+        "vendor_org_id": org.id,
+        "vendor_org_name": org.name,
+        "invite_code": code,
+        "register_at": "/vendor",
+        "note": "Single use — hand it to the vendor; it dies on first registration.",
+    }
 
 
 # --------------------------------------------------------------------------

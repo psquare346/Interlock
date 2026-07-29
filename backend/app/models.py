@@ -50,6 +50,9 @@ class Tenant(Base):
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
+    # SHA-256 of the PO-receipt integration key SAP sends on /api/v1/po/receive.
+    # Set/rotated by an admin; the plaintext is shown exactly once.
+    po_key_hash: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -64,6 +67,9 @@ class VendorOrg(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(200))
     contact_email: Mapped[str | None] = mapped_column(String(200), unique=True)
+    # SHA-256 of the single-use invite code a customer admin hands the vendor;
+    # consumed (nulled) by the first vendor-user registration.
+    invite_code_hash: Mapped[str | None] = mapped_column(String(64))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
@@ -440,6 +446,132 @@ class PunchoutSession(Base):
     cart: Mapped[list | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     returned_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+# --------------------------------------------------------------------------
+# Orders — POs received from the customer's S/4, tracked through fulfillment
+# --------------------------------------------------------------------------
+
+class OrderStatus(str, enum.Enum):
+    RECEIVED = "received"        # PO landed from SAP, matched to catalog/contract
+    ACKNOWLEDGED = "acknowledged"  # vendor confirmed they will fulfill
+    SHIPPED = "shipped"          # vendor posted shipment + tracking
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"
+
+
+class PriceVerdict(str, enum.Enum):
+    """Line-level price truth: paid vs. what the contract says (the product's
+    core promise — every PO line is verified against the negotiated price)."""
+
+    MATCH = "match"              # within tolerance of the contracted price
+    OVERPAID = "overpaid"
+    UNDERPAID = "underpaid"
+    OFF_CATALOG = "off_catalog"  # part not found in the published catalog
+
+
+class Order(Base):
+    __tablename__ = "orders"
+    # Idempotency (SCALE.md D4): SAP re-pushes update in place, never duplicate.
+    __table_args__ = (UniqueConstraint("tenant_id", "sap_po_number"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    supplier_id: Mapped[str | None] = mapped_column(ForeignKey("suppliers.id"))
+    tenant: Mapped[Tenant] = relationship()
+    supplier: Mapped[Supplier | None] = relationship()
+
+    sap_po_number: Mapped[str] = mapped_column(String(35))  # EBELN is 10, cushion
+    sap_po_version: Mapped[int] = mapped_column(Integer, default=1)  # bumps per re-push
+    status: Mapped[OrderStatus] = mapped_column(
+        _enum(OrderStatus), default=OrderStatus.RECEIVED, index=True
+    )
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    total: Mapped[float | None] = mapped_column(Numeric(15, 2))
+    ordered_at: Mapped[date | None] = mapped_column(Date)  # PO document date
+    source: Mapped[str] = mapped_column(String(20), default="json")  # json | idoc
+    raw_payload_key: Mapped[str | None] = mapped_column(String(300))  # storage seam
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    lines: Mapped[list["OrderLine"]] = relationship(back_populates="order")
+    events: Mapped[list["OrderEvent"]] = relationship(back_populates="order")
+
+
+class OrderLine(Base):
+    __tablename__ = "order_lines"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"))
+    tenant: Mapped[Tenant] = relationship()
+    order: Mapped[Order] = relationship(back_populates="lines")
+
+    line_no: Mapped[int] = mapped_column(Integer)
+    supplier_part_id: Mapped[str | None] = mapped_column(String(120))
+    description: Mapped[str | None] = mapped_column(String(200))
+    quantity: Mapped[float] = mapped_column(Numeric(15, 3), default=1)
+    uom: Mapped[str | None] = mapped_column(String(10))
+    unit_price: Mapped[float] = mapped_column(Numeric(15, 4))  # what SAP says was agreed
+    currency: Mapped[str | None] = mapped_column(String(3))
+
+    # Price-truth verification, filled at receipt time.
+    item_id: Mapped[str | None] = mapped_column(ForeignKey("catalog_items.id"))
+    contract_id: Mapped[str | None] = mapped_column(ForeignKey("contracts.id"))
+    item: Mapped["CatalogItem | None"] = relationship()
+    contract: Mapped[Contract | None] = relationship()
+    expected_unit_price: Mapped[float | None] = mapped_column(Numeric(15, 4))
+    price_verdict: Mapped[PriceVerdict | None] = mapped_column(_enum(PriceVerdict))
+    price_delta: Mapped[float | None] = mapped_column(Numeric(15, 2))  # (paid-expected)*qty
+
+
+class OrderEvent(Base):
+    """The tracking timeline: received → acknowledged → shipped → delivered.
+    Every state change and note is a row — 'where is my order?' is a SELECT."""
+
+    __tablename__ = "order_events"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), index=True)
+    tenant: Mapped[Tenant] = relationship()
+    order: Mapped[Order] = relationship(back_populates="events")
+
+    type: Mapped[str] = mapped_column(String(30))  # received|updated|acknowledged|shipped|delivered|cancelled|note
+    data: Mapped[dict | None] = mapped_column(JSON)  # e.g. {"tracking_number":..., "carrier":...}
+    actor: Mapped[str | None] = mapped_column(String(200))  # email or "sap"
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+# --------------------------------------------------------------------------
+# Vendor users — one login per vendor org, serving every connected customer
+# --------------------------------------------------------------------------
+
+class VendorUser(Base):
+    __tablename__ = "vendor_users"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    vendor_org_id: Mapped[str] = mapped_column(ForeignKey("vendor_orgs.id"))
+    vendor_org: Mapped[VendorOrg] = relationship()
+    email: Mapped[str] = mapped_column(String(200), unique=True)
+    display_name: Mapped[str] = mapped_column(String(120))
+    password_salt: Mapped[str] = mapped_column(String(32))
+    password_hash: Mapped[str] = mapped_column(String(64))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class VendorToken(Base):
+    __tablename__ = "vendor_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    vendor_user_id: Mapped[str] = mapped_column(ForeignKey("vendor_users.id"))
+    vendor_user: Mapped[VendorUser] = relationship()
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 # --------------------------------------------------------------------------

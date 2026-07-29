@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interlock Orders — PO tracking &amp; price truth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E7EAE4; --paper-raised:#F4F5F1; --ink:#13171B; --ink-soft:#585F63;
+  --rule:#C6CBC2; --cobalt:#1E3ED8; --oxide:#9E3A20; --green:#1F6B3A;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:400 15px/1.55 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:"Bricolage Grotesque",Georgia,serif;font-weight:800;letter-spacing:-.02em;margin:0}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+.nav{border-bottom:1px solid var(--rule);position:sticky;top:0;background:var(--paper);z-index:20}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:58px;gap:16px}
+.mark{font-family:"Bricolage Grotesque",serif;font-weight:800;font-size:1.1rem;display:flex;align-items:center;gap:9px}
+.mark span{width:10px;height:10px;background:var(--cobalt);border-radius:2px;display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:22px}
+.card{background:var(--paper-raised);border:1px solid var(--rule);padding:20px}
+.card h3{font-size:1rem;font-weight:600;font-family:"IBM Plex Sans",sans-serif;margin-bottom:14px}
+label{display:block;font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:12px 0 4px}
+input,select{width:100%;padding:9px 11px;border:1px solid var(--rule);background:#fff;font:inherit;border-radius:2px}
+input:focus{outline:2px solid var(--cobalt);outline-offset:1px}
+.btn{display:inline-block;background:var(--cobalt);color:#fff;border:none;font:500 .88rem "IBM Plex Sans",sans-serif;padding:10px 18px;border-radius:2px;cursor:pointer;margin-top:14px}
+.btn:hover{background:#152FAF}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--rule)}
+.btn.sm{padding:5px 10px;font-size:.78rem;margin:0}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;font-size:.86rem}
+th{font-family:"IBM Plex Mono",monospace;font-size:.64rem;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft);text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule)}
+td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+tr:hover td{background:#fff}
+tr.click{cursor:pointer}
+.table-scroll{overflow-x:auto}
+.badge{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.08em;padding:3px 8px;border-radius:2px;border:1px solid var(--rule);white-space:nowrap}
+.badge.received{background:#FBF3D9;border-color:#D8C47E;color:#7A5E0E}
+.badge.acknowledged{background:#E4E9FB;border-color:#9DB1FF;color:var(--cobalt)}
+.badge.shipped,.badge.delivered,.badge.match{background:#E2EFE6;border-color:#9EC4AA;color:var(--green)}
+.badge.cancelled,.badge.overpaid{background:#F6E3DC;border-color:#D3A08D;color:var(--oxide)}
+.badge.off_catalog{background:var(--paper);color:var(--ink-soft)}
+.badge.underpaid{background:#E4E9FB;border-color:#9DB1FF;color:var(--cobalt)}
+.kpi{display:flex;gap:26px;flex-wrap:wrap;margin:14px 0}
+.kpi div b{font-family:"Bricolage Grotesque",serif;font-size:1.7rem;display:block}
+.kpi div span{font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+.kpi .leak b{color:var(--oxide)}
+.out{font-family:"IBM Plex Mono",monospace;font-size:.78rem;background:#fff;border:1px solid var(--rule);padding:12px;margin-top:16px;white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto}
+.out:empty{display:none}
+.toast{position:fixed;bottom:22px;right:22px;background:var(--ink);color:#fff;padding:12px 18px;font-size:.86rem;border-radius:3px;opacity:0;transition:opacity .2s;z-index:50;max-width:440px}
+.toast.show{opacity:1}
+.overlay{position:fixed;inset:0;background:rgba(19,23,27,.55);display:none;align-items:center;justify-content:center;z-index:40}
+.overlay.show{display:flex}
+.authcard{background:var(--paper-raised);border:1px solid var(--rule);padding:30px;width:min(400px,92vw)}
+.autherr{color:var(--oxide);font-size:.83rem;margin-top:10px;min-height:1.2em}
+.explain{font-size:.95rem;color:var(--ink-soft);max-width:70ch;margin:10px 0 26px;border-left:3px solid var(--cobalt);padding-left:14px}
+.timeline{list-style:none;margin:8px 0 0;padding:0;font-size:.85rem}
+.timeline li{padding:7px 0 7px 18px;border-left:2px solid var(--rule);position:relative}
+.timeline li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--cobalt);position:absolute;left:-5px;top:12px}
+.timeline .when{font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--ink-soft)}
+section{margin-top:34px}
+.backlink{font-size:.82rem;cursor:pointer;color:var(--cobalt);background:none;border:none;font-family:inherit;padding:0}
+</style>
+</head>
+<body>
+
+<div class="nav"><div class="wrap">
+  <div class="mark"><span></span>Interlock Orders</div>
+  <div style="display:flex;gap:18px;align-items:center">
+    <a class="mono" style="font-size:.75rem" href="/admin">Admin console →</a>
+    <span class="mono" id="whoami" style="font-size:.72rem;color:var(--ink-soft)"></span>
+    <button class="btn ghost sm" onclick="logout()">Log out</button>
+  </div>
+</div></div>
+
+<div class="overlay" id="authOverlay">
+  <div class="authcard">
+    <h2>Interlock Orders</h2>
+    <div style="font-size:.85rem;color:var(--ink-soft);margin:6px 0 4px">
+      Sign in with your Interlock account (same login as the admin console).</div>
+    <label>Tenant</label><input id="aTenant" value="demo">
+    <label>Email</label><input id="aEmail" type="email">
+    <label>Password</label><input id="aPass" type="password">
+    <button class="btn" onclick="doLogin()">Log in</button>
+    <div class="autherr" id="authErr"></div>
+  </div>
+</div>
+
+<div class="wrap">
+
+<section id="listView">
+  <h1 style="margin-top:30px">Purchase orders</h1>
+  <p class="explain">Every PO your S/4 pushed to the platform, verified line-by-line
+    against your contracted prices, tracked from receipt to delivery. Click a row for
+    the detail and timeline.</p>
+  <div class="kpi" id="kpis"></div>
+  <div class="card"><div class="table-scroll">
+    <table id="ordersTable">
+      <thead><tr><th>PO number</th><th>Supplier</th><th>Status</th><th>Total</th><th>Ordered</th><th>Updated</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div></div>
+
+  <section>
+    <h2 style="font-size:1.3rem">Leakage audit</h2>
+    <p class="explain">Export your PO history from SAP (ME2M / a spreadsheet with
+      po_number, date, part, quantity, unit_price — SAP column names like EBELN/NETPR
+      work too) and upload it. We price every line against your contracts and total
+      what you overpaid.</p>
+    <div class="grid">
+      <div class="card">
+        <h3>Run an audit</h3>
+        <label>PO history file (CSV)</label>
+        <input type="file" id="auditFile" accept=".csv,.txt">
+        <button class="btn" id="auditBtn" onclick="runAudit()">Upload &amp; analyze</button>
+        <div class="out" id="auditStatus"></div>
+      </div>
+      <div class="card" id="auditResultCard" style="display:none">
+        <h3>Result</h3>
+        <div class="kpi" id="auditKpis"></div>
+        <div id="auditOffenders"></div>
+        <button class="btn ghost sm" id="auditDownload" style="margin-top:12px">Download line-by-line report</button>
+      </div>
+      <div class="card">
+        <h3>SAP → Interlock PO feed</h3>
+        <div style="font-size:.85rem;color:var(--ink-soft)">Generate the integration key
+          your Basis team configures on the PO output. Shown once; rotating replaces it.</div>
+        <button class="btn ghost" onclick="rotateKey()">Generate / rotate PO key</button>
+        <div class="out" id="keyOut"></div>
+      </div>
+    </div>
+  </section>
+</section>
+
+<section id="detailView" style="display:none">
+  <button class="backlink" onclick="showList()">← All orders</button>
+  <h1 style="margin-top:12px">PO <span id="dPo" class="mono"></span></h1>
+  <div class="kpi" id="dKpis"></div>
+  <div class="grid">
+    <div class="card" style="grid-column:1/-1">
+      <h3>Lines — paid vs. contract</h3>
+      <div class="table-scroll"><table id="dLines">
+        <thead><tr><th>#</th><th>Part</th><th>Description</th><th>Qty</th><th>Paid</th><th>Contract</th><th>Verdict</th><th>Δ total</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <h3>Timeline</h3>
+      <ul class="timeline" id="dEvents"></ul>
+      <button class="btn sm" id="deliverBtn" onclick="markDelivered()">Mark delivered (goods receipt)</button>
+    </div>
+    <div class="card">
+      <h3>Add a note</h3>
+      <input id="noteText" placeholder="e.g. partial delivery, box damaged">
+      <button class="btn sm" style="margin-top:10px" onclick="addNote()">Save note</button>
+    </div>
+  </div>
+</section>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let TOKEN = sessionStorage.getItem("interlock_token") || null;
+let CURRENT = null;
+
+async function api(path, opts={}){
+  opts.headers = Object.assign({}, opts.headers, TOKEN ? {"Authorization":"Bearer "+TOKEN} : {});
+  const r = await fetch(path, opts);
+  if(r.status === 401){ sessionStorage.removeItem("interlock_token"); TOKEN=null; gate(); throw new Error("Logged out"); }
+  const data = r.headers.get("content-type")?.includes("json") ? await r.json() : await r.text();
+  if(!r.ok) throw new Error(typeof data === "object" ? (data.detail || JSON.stringify(data)) : data);
+  return data;
+}
+function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), 3400); }
+function money(v, cur){ return v==null ? "—" : Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " " + (cur||""); }
+
+function gate(){ document.getElementById("authOverlay").classList.toggle("show", !TOKEN); }
+async function doLogin(){
+  try{
+    const r = await api("/api/auth/login", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({tenant_id:aTenant.value.trim(), email:aEmail.value.trim(), password:aPass.value})});
+    TOKEN = r.token; sessionStorage.setItem("interlock_token", TOKEN);
+    document.getElementById("authErr").textContent = "";
+    gate(); boot();
+  }catch(e){ document.getElementById("authErr").textContent = e.message; }
+}
+function logout(){ TOKEN=null; sessionStorage.removeItem("interlock_token"); gate(); }
+
+function showList(){ detailView.style.display="none"; listView.style.display="block"; loadOrders(); }
+
+async function boot(){
+  try{
+    const me = await api("/api/auth/me");
+    document.getElementById("whoami").textContent = me.email + " · " + me.tenant_id;
+    loadOrders();
+  }catch(e){}
+}
+
+async function loadOrders(){
+  const orders = await api("/api/orders");
+  const open = orders.filter(o=>["received","acknowledged"].includes(o.status)).length;
+  const shipped = orders.filter(o=>o.status==="shipped").length;
+  document.getElementById("kpis").innerHTML =
+    `<div><b>${orders.length}</b><span>orders</span></div>`+
+    `<div><b>${open}</b><span>awaiting vendor</span></div>`+
+    `<div><b>${shipped}</b><span>in transit</span></div>`;
+  const tb = document.querySelector("#ordersTable tbody");
+  tb.innerHTML = orders.map(o=>`<tr class="click" onclick="openOrder('${o.id}')">
+    <td class="mono">${o.sap_po_number}${o.version>1?` <span class="badge">v${o.version}</span>`:""}</td>
+    <td>${o.supplier || "<i>unmatched supplier</i>"}</td>
+    <td><span class="badge ${o.status}">${o.status}</span></td>
+    <td class="mono">${money(o.total, o.currency)}</td>
+    <td class="mono">${o.ordered_at || "—"}</td>
+    <td class="mono">${o.updated_at.slice(0,16).replace("T"," ")}</td></tr>`).join("")
+    || `<tr><td colspan="6" style="color:var(--ink-soft)">No orders yet — they appear the moment SAP pushes a PO to /api/v1/po/receive. Use the sample in backend/samples to try it.</td></tr>`;
+}
+
+async function openOrder(id){
+  const o = await api("/api/orders/"+id);
+  CURRENT = o;
+  listView.style.display="none"; detailView.style.display="block";
+  document.getElementById("dPo").textContent = o.sap_po_number;
+  const ps = o.price_summary;
+  document.getElementById("dKpis").innerHTML =
+    `<div><b>${money(o.total,o.currency)}</b><span>PO total</span></div>`+
+    `<div><b><span class="badge ${o.status}">${o.status}</span></b><span>status</span></div>`+
+    `<div class="leak"><b>${money(ps.leakage,o.currency)}</b><span>leakage on this PO</span></div>`+
+    `<div><b>${ps.off_catalog_lines}</b><span>off-catalog lines</span></div>`;
+  document.querySelector("#dLines tbody").innerHTML = o.lines.map(l=>`<tr>
+    <td class="mono">${l.line_no}</td><td class="mono">${l.part||"—"}</td><td>${l.description||""}</td>
+    <td class="mono">${l.quantity} ${l.uom||""}</td>
+    <td class="mono">${money(l.unit_price,l.currency)}</td>
+    <td class="mono">${l.expected_unit_price!=null?money(l.expected_unit_price,l.currency):"—"}</td>
+    <td>${l.price_verdict?`<span class="badge ${l.price_verdict}">${l.price_verdict}</span>`:""}</td>
+    <td class="mono" style="${l.price_delta>0?'color:var(--oxide)':''}">${l.price_delta!=null?money(l.price_delta,l.currency):""}</td></tr>`).join("");
+  document.getElementById("dEvents").innerHTML = o.events.map(e=>{
+    const extra = e.data && e.data.tracking_number ? ` — ${e.data.carrier||""} ${e.data.tracking_number}` :
+                  e.data && e.data.text ? ` — ${e.data.text}` : "";
+    return `<li><b>${e.type}</b>${extra}<br><span class="when">${e.created_at.slice(0,16).replace("T"," ")} · ${e.actor||""}</span></li>`;
+  }).join("");
+  document.getElementById("deliverBtn").disabled = o.status !== "shipped";
+}
+
+async function markDelivered(){
+  try{ await api(`/api/orders/${CURRENT.id}/mark-delivered`, {method:"POST"}); toast("Marked delivered"); openOrder(CURRENT.id); }
+  catch(e){ toast(e.message); }
+}
+async function addNote(){
+  const text = document.getElementById("noteText").value.trim();
+  if(!text) return;
+  await api(`/api/orders/${CURRENT.id}/note`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text})});
+  document.getElementById("noteText").value=""; openOrder(CURRENT.id);
+}
+
+/* ---------- leakage audit ---------- */
+async function runAudit(){
+  const f = document.getElementById("auditFile").files[0];
+  if(!f){ toast("Choose the PO-history CSV first"); return; }
+  const fd = new FormData(); fd.append("file", f);
+  document.getElementById("auditBtn").disabled = true;
+  document.getElementById("auditStatus").textContent = "Uploading…";
+  try{
+    const r = await api("/api/audit/upload", {method:"POST", body:fd});
+    pollAudit(r.job_id);
+  }catch(e){
+    document.getElementById("auditStatus").textContent = "Failed: " + e.message;
+    document.getElementById("auditBtn").disabled = false;
+  }
+}
+async function pollAudit(jobId){
+  const st = document.getElementById("auditStatus");
+  try{
+    const j = await api("/api/jobs/"+jobId);
+    if(j.status==="succeeded"){ showAudit(jobId, j.result); st.textContent=""; }
+    else if(j.status==="dead"){ st.textContent = "Audit failed:\n" + (j.error||"").split("\n").slice(-3).join("\n"); document.getElementById("auditBtn").disabled=false; }
+    else{ st.textContent = `Analyzing… (${j.status})`; setTimeout(()=>pollAudit(jobId), 1200); }
+  }catch(e){ st.textContent = e.message; document.getElementById("auditBtn").disabled=false; }
+}
+function showAudit(jobId, r){
+  document.getElementById("auditBtn").disabled=false;
+  document.getElementById("auditResultCard").style.display="block";
+  document.getElementById("auditKpis").innerHTML =
+    `<div class="leak"><b>${money(r.leakage_total)}</b><span>paid above contract</span></div>`+
+    `<div><b>${r.leakage_pct_of_spend.toFixed(2)}%</b><span>of audited spend</span></div>`+
+    `<div><b>${r.matched_lines}/${r.lines}</b><span>lines matched</span></div>`+
+    `<div><b>${r.off_catalog_lines}</b><span>off-catalog</span></div>`;
+  document.getElementById("auditOffenders").innerHTML = r.top_offenders.length ?
+    "<label>Top offenders</label>" + r.top_offenders.map(t=>
+      `<div style="display:flex;justify-content:space-between;font-size:.85rem;padding:3px 0;border-bottom:1px solid var(--rule)">
+        <span class="mono">${t.part}</span><span class="mono" style="color:var(--oxide)">${money(t.leakage)}</span></div>`).join("") : "";
+  document.getElementById("auditDownload").onclick = async () => {
+    const resp = await fetch(`/api/audit/${jobId}/report`, {headers:{"Authorization":"Bearer "+TOKEN}});
+    const blob = await resp.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "leakage-report.csv"; a.click();
+  };
+}
+
+/* ---------- PO key ---------- */
+async function rotateKey(){
+  try{
+    const r = await api("/api/tenants/po-key", {method:"POST"});
+    document.getElementById("keyOut").textContent =
+      "PO key (shown once):\n" + r.po_key + "\n\nEndpoint:\nPOST " + location.origin + r.endpoint +
+      "\nHeader: X-PO-Key: <the key above>";
+  }catch(e){ toast(e.message); }
+}
+
+gate();
+if(TOKEN) boot();
+</script>
+</body>
+</html>

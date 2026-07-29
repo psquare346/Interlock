@@ -1,0 +1,10 @@
+{
+  "po_number": "4500001234",
+  "currency": "USD",
+  "ordered_at": "2026-07-29",
+  "supplier": { "code": "ACME" },
+  "lines": [
+    { "line_no": 10, "part": "A-1", "description": "Schraube M8", "quantity": 100, "uom": "EA", "unit_price": 0.42 },
+    { "line_no": 20, "part": "A-2", "description": "Mutter M8", "quantity": 50, "uom": "EA", "unit_price": 1234.56 }
+  ]
+}
