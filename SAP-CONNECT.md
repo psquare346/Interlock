@@ -5,8 +5,15 @@ SAP. Wire 2 makes SAP push finished POs to the platform. Do them in that
 order — Wire 1 needs only config a functional consultant can do in an
 afternoon; Wire 2 touches output management.
 
-Throughout: `<BASE>` = your deployment (e.g. https://interlock-s20b.onrender.com)
-and `<TENANT>` = your tenant id (e.g. `demo`).
+**Placeholders:** `<BASE>` = your deployment, `<TENANT>` = your tenant id,
+`<KEY>` = your PO key. **Substitute the real value and drop the angle
+brackets** — never type `<` or `>` into SAP. For the current deployment:
+
+| Placeholder | Type this instead                     |
+|-------------|---------------------------------------|
+| `<BASE>`    | `https://interlock-s20b.onrender.com` |
+| `<TENANT>`  | `demo`                                |
+| `<KEY>`     | the key from the `/orders` page       |
 
 ---
 
@@ -22,13 +29,18 @@ IMG path: `SPRO → Materials Management → Purchasing → Environment →
 Web Services: ID and Description` (the OCI catalog table). Create an entry:
 
 - Web service ID: `INTERLOCK`, description: `Interlock punchout catalog`
-- **Call structure** (sequence matters):
+- **Call structure** — exactly three rows, typed literally as shown
+  (row 10 has no parameter name; row 30 has no value — SAP fills it):
 
-| Seq | Name        | Value                                   | Type          |
-|-----|-------------|-----------------------------------------|---------------|
-| 10  |             | `<BASE>/api/v1/punchout/oci/start`      | URL           |
-| 20  | `tenant_id` | `<TENANT>`                              | Fixed value   |
-| 30  | `HOOK_URL`  |                                         | Return URL    |
+| Seq | Parameter name | Parameter value                                                     | Type        |
+|-----|----------------|---------------------------------------------------------------------|-------------|
+| 10  | *(leave empty)* | `https://interlock-s20b.onrender.com/api/v1/punchout/oci/start`     | URL         |
+| 20  | `tenant_id`    | `demo`                                                              | Fixed value |
+| 30  | `HOOK_URL`     | *(leave empty)*                                                     | Return URL  |
+
+Row 30's name must be spelled `HOOK_URL` in capitals — that is the OCI
+standard name SAP looks for. No trailing slash on the URL, no quotes
+anywhere, and no `<` `>` characters.
 
 That is the whole OCI contract: SAP opens the URL with a generated
 `HOOK_URL`; Interlock redirects the browser to the storefront; on transfer,
@@ -48,10 +60,16 @@ in the requisition/PO item grid.
 the SAP server, so no STRUST work is needed for Wire 1. Render's certificate
 is from a public CA that browsers already trust.
 
-**Sanity test without SAP:** open
-`<BASE>/api/punchout/oci/start?tenant_id=<TENANT>&HOOK_URL=<BASE>/api/punchout/oci/mock-hook`
-in a browser. You should land on the storefront; Transfer posts the cart to
-the mock hook, which echoes the exact OCI fields SAP would receive.
+**Sanity test without SAP** — paste this in a browser (one line, real values,
+no placeholders):
+
+```
+https://interlock-s20b.onrender.com/api/punchout/oci/start?tenant_id=demo&HOOK_URL=https://interlock-s20b.onrender.com/api/punchout/oci/mock-hook
+```
+
+You should land on the storefront; Transfer posts the cart to the mock hook,
+which echoes the exact OCI fields SAP would receive. If that works, the SAP
+config above is just pointing at the same URL.
 
 ---
 
