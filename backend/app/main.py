@@ -90,3 +90,9 @@ def orders_ui():
 @app.get("/vendor", include_in_schema=False)
 def vendor_ui():
     return FileResponse(FRONTEND / "vendor.html")
+
+
+@app.get("/shop", include_in_schema=False)
+def shop_ui():
+    """Punchout storefront — SAP redirects the buyer's browser here."""
+    return FileResponse(FRONTEND / "shop.html")

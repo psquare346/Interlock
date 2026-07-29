@@ -22,7 +22,7 @@ import html
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -63,6 +63,14 @@ async def oci_start(
     )
     db.add(session)
     db.commit()
+
+    # A real SAP punchout opens this URL in the employee's browser — hand them
+    # the storefront page. API/JSON callers (tests, the admin console) get the
+    # session descriptor as before.
+    if "text/html" in (request.headers.get("accept") or ""):
+        return RedirectResponse(
+            f"/shop?session={session.id}&tenant_id={tenant_id}", status_code=302
+        )
 
     return {
         "session_id": session.id,

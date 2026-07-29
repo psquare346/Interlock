@@ -41,12 +41,17 @@ async def receive(
     request: Request,
     tenant_id: str = Query(...),
     x_po_key: str | None = Header(None, alias="X-PO-Key"),
+    po_key: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """Accepts a PO as ORDERS05 IDoc-XML (Content-Type: application/xml or
     text/xml) or as JSON. Idempotent on (tenant, PO number): SAP re-pushes
-    update the order in place and bump its version."""
-    tenant = _authorized_tenant(db, tenant_id, x_po_key)
+    update the order in place and bump its version.
+
+    The key is normally the X-PO-Key header; ?po_key= is accepted as a
+    fallback because SAP's IDoc HTTP ports (SM59 type G) can set a URL but
+    not custom headers."""
+    tenant = _authorized_tenant(db, tenant_id, x_po_key or po_key)
 
     raw = await request.body()
     content_type = (request.headers.get("content-type") or "").lower()

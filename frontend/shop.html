@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interlock — catalog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E7EAE4; --paper-raised:#F4F5F1; --ink:#13171B; --ink-soft:#585F63;
+  --rule:#C6CBC2; --cobalt:#1E3ED8; --oxide:#9E3A20; --green:#1F6B3A;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:400 15px/1.55 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:"Bricolage Grotesque",Georgia,serif;font-weight:800;letter-spacing:-.02em;margin:0}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+.nav{border-bottom:1px solid var(--rule);position:sticky;top:0;background:var(--paper);z-index:20}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:58px;gap:16px}
+.mark{font-family:"Bricolage Grotesque",serif;font-weight:800;font-size:1.1rem;display:flex;align-items:center;gap:9px}
+.mark span{width:10px;height:10px;background:var(--cobalt);border-radius:2px;display:block}
+.sess{font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--ink-soft)}
+.layout{display:grid;grid-template-columns:1fr 340px;gap:22px;margin-top:26px;align-items:start}
+@media(max-width:900px){.layout{grid-template-columns:1fr}}
+.card{background:var(--paper-raised);border:1px solid var(--rule);padding:20px}
+.card h3{font-size:1rem;font-weight:600;font-family:"IBM Plex Sans",sans-serif;margin-bottom:12px}
+input{padding:9px 11px;border:1px solid var(--rule);background:#fff;font:inherit;border-radius:2px}
+input:focus{outline:2px solid var(--cobalt);outline-offset:1px}
+.search{width:100%;margin-bottom:14px}
+.btn{display:inline-block;background:var(--cobalt);color:#fff;border:none;font:500 .85rem "IBM Plex Sans",sans-serif;padding:8px 14px;border-radius:2px;cursor:pointer}
+.btn:hover{background:#152FAF}
+.btn.big{width:100%;padding:12px;font-size:.95rem;margin-top:14px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;font-size:.86rem}
+th{font-family:"IBM Plex Mono",monospace;font-size:.64rem;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft);text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule)}
+td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:middle}
+tr:hover td{background:#fff}
+.table-scroll{overflow-x:auto}
+.qty{width:70px;text-align:right}
+.hint{font-size:.75rem;color:var(--green)}
+.cartline{display:flex;justify-content:space-between;gap:10px;font-size:.85rem;padding:7px 0;border-bottom:1px solid var(--rule)}
+.total{display:flex;justify-content:space-between;font-weight:600;padding-top:12px;font-size:1rem}
+.toast{position:fixed;bottom:22px;right:22px;background:var(--ink);color:#fff;padding:12px 18px;font-size:.86rem;border-radius:3px;opacity:0;transition:opacity .2s;z-index:50;max-width:440px}
+.toast.show{opacity:1}
+.note{font-size:.8rem;color:var(--ink-soft);margin-top:10px}
+.dead{max-width:560px;margin:80px auto;text-align:center}
+</style>
+</head>
+<body>
+
+<div class="nav"><div class="wrap">
+  <div class="mark"><span></span>Interlock catalog</div>
+  <div class="sess" id="sessInfo"></div>
+</div></div>
+
+<div class="wrap" id="app" style="display:none">
+  <div class="layout">
+    <div class="card">
+      <h3>Contracted catalog</h3>
+      <input class="search" id="q" placeholder="Search part number or description…" oninput="debounceSearch()">
+      <div class="table-scroll"><table>
+        <thead><tr><th>Part</th><th>Description</th><th>Unit</th><th>Price</th><th style="width:150px">Qty</th></tr></thead>
+        <tbody id="items"></tbody>
+      </table></div>
+      <div class="note">Prices are your negotiated contract prices, resolved per quantity —
+        pick the quantity <i>here</i>: changing it later in SAP does not re-price the line.</div>
+    </div>
+    <div class="card">
+      <h3>Cart</h3>
+      <div id="cart"><i style="font-size:.85rem;color:var(--ink-soft)">Empty — add items from the catalog.</i></div>
+      <div class="total" id="totalRow" style="display:none"><span>Total</span><span id="total" class="mono"></span></div>
+      <form id="returnForm" method="post">
+        <button class="btn big" id="returnBtn" type="submit" disabled>Transfer cart to SAP →</button>
+      </form>
+      <div class="note">Transferring closes this session and posts the lines back into your
+        SAP requisition. Nothing is ordered yet — your normal approval flow takes over.</div>
+    </div>
+  </div>
+</div>
+
+<div class="dead" id="dead" style="display:none">
+  <h1>Session closed</h1>
+  <p id="deadMsg" style="color:var(--ink-soft)"></p>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const SESSION = params.get("session");
+const TENANT = params.get("tenant_id") || "demo";
+let CART = [];
+let timer = null;
+
+function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), 3200); }
+function money(v, cur){ return Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4}) + " " + (cur||""); }
+function esc(s){ return String(s??"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+async function jget(url){ const r = await fetch(url); const d = await r.json(); if(!r.ok) throw new Error(d.detail||r.statusText); return d; }
+
+function die(msg){
+  document.getElementById("app").style.display="none";
+  document.getElementById("dead").style.display="block";
+  document.getElementById("deadMsg").textContent = msg;
+}
+
+async function boot(){
+  if(!SESSION){ die("No punchout session — this page only works when opened from SAP (or the admin console's Punchout tab)."); return; }
+  try{
+    const s = await jget(`/api/punchout/sessions/${SESSION}`);
+    if(s.status !== "open"){ die(`This punchout session is ${s.status}. Start a new one from SAP.`); return; }
+    CART = s.cart || [];
+    document.getElementById("sessInfo").textContent =
+      (s.sap_user ? s.sap_user + " · " : "") + "session " + SESSION.slice(0,8) + " · OCI " + (s.oci_version||"");
+    document.getElementById("returnForm").action = `/api/punchout/sessions/${SESSION}/return`;
+    document.getElementById("app").style.display="block";
+    renderCart();
+    search();
+  }catch(e){ die(e.message); }
+}
+
+function debounceSearch(){ clearTimeout(timer); timer = setTimeout(search, 250); }
+
+async function search(){
+  const q = document.getElementById("q").value.trim();
+  const items = await jget(`/api/catalog/items?tenant_id=${encodeURIComponent(TENANT)}` + (q?`&q=${encodeURIComponent(q)}`:""));
+  document.getElementById("items").innerHTML = items.map(i=>`<tr>
+    <td class="mono">${esc(i.supplier_part_id)}</td>
+    <td>${esc(i.description)}${i.lead_time_days!=null?`<div class="hint">lead time ${i.lead_time_days}d</div>`:""}</td>
+    <td class="mono">${esc(i.uom_sap||"EA")}</td>
+    <td class="mono">${i.unit_price!=null ? money(i.unit_price, i.currency) + (i.price_unit>1?` / ${i.price_unit}`:"") : "—"}</td>
+    <td><input class="qty" type="number" min="1" value="1" id="q_${esc(i.id)}">
+        <button class="btn" onclick="add('${esc(i.supplier_part_id)}','${esc(i.id)}')">Add</button></td>
+  </tr>`).join("") || `<tr><td colspan="5" style="color:var(--ink-soft)">No published items${q?" match "+esc(q):""}.</td></tr>`;
+}
+
+async function add(part, itemId){
+  const qty = parseInt(document.getElementById("q_"+itemId).value) || 1;
+  try{
+    const r = await fetch(`/api/punchout/sessions/${SESSION}/cart/add`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({part, quantity: qty})});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail||r.statusText);
+    CART.push(d.added);
+    renderCart();
+    if(d.added.next_break)
+      toast(`Tip: at qty ${d.added.next_break.qty} the price drops to ${d.added.next_break.unit_price} (save ${d.added.next_break.saving_per_unit}/unit)`);
+  }catch(e){ toast(e.message); }
+}
+
+function renderCart(){
+  const el = document.getElementById("cart");
+  if(!CART.length){
+    el.innerHTML = `<i style="font-size:.85rem;color:var(--ink-soft)">Empty — add items from the catalog.</i>`;
+    document.getElementById("totalRow").style.display="none";
+    document.getElementById("returnBtn").disabled = true;
+    return;
+  }
+  let total = 0, cur = "";
+  el.innerHTML = CART.map(l=>{
+    const eff = l.unit_price / (l.price_unit||1);
+    total += eff * l.quantity; cur = l.currency;
+    return `<div class="cartline"><span>${l.quantity} × <b class="mono">${esc(l.part)}</b><br>
+      <span style="color:var(--ink-soft);font-size:.78rem">${esc(l.description||"")}</span></span>
+      <span class="mono">${money(eff*l.quantity, l.currency)}</span></div>`;
+  }).join("");
+  document.getElementById("total").textContent = money(total, cur);
+  document.getElementById("totalRow").style.display="flex";
+  document.getElementById("returnBtn").disabled = false;
+}
+
+boot();
+</script>
+</body>
+</html>
