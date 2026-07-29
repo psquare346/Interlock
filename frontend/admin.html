@@ -139,10 +139,22 @@ tr:hover td{background:#fff}
       <div class="card"><h3>Your tenant</h3><div id="tenantList"></div>
         <p class="reasons" style="margin-top:12px">Tenants are created by registration: the first account registered under a new tenant id bootstraps it and becomes its admin.</p></div>
       <div class="card"><h3>Suppliers</h3><div id="supplierList"></div>
+        <div class="out" id="inviteOut"></div>
         <label>code</label><input id="sCode" placeholder="ACME">
         <label>name</label><input id="sName" placeholder="Acme Industrial">
         <label>sap vendor no</label><input id="sVendor" placeholder="0000100234">
         <label>protocol</label><select id="sProto"><option>hosted</option><option>cxml</option><option>oci</option></select>
+        <label>deployment mode</label><select id="sMode"><option>test</option><option>production</option></select>
+        <details style="margin-top:12px">
+          <summary style="cursor:pointer;font-size:.82rem;color:var(--ink-soft)">cXML punchout connection (only for protocol = cxml)</summary>
+          <label>punchout url</label><input id="sPunchoutUrl" placeholder="https://supplier.example.com/punchout">
+          <label>from domain / identity (us)</label>
+          <div style="display:flex;gap:8px"><input id="sFromDomain" placeholder="NetworkId"><input id="sFromIdentity" placeholder="interlock-buyer"></div>
+          <label>to domain / identity (them)</label>
+          <div style="display:flex;gap:8px"><input id="sToDomain" placeholder="DUNS"><input id="sToIdentity" placeholder="123456789"></div>
+          <label>shared secret (stored encrypted, never shown again)</label>
+          <input id="sSecret" type="password" autocomplete="new-password">
+        </details>
         <button class="btn" onclick="createSupplier()">Create supplier</button></div>
       <div class="card"><h3>Contracts</h3><div id="contractList"></div>
         <label>contract no</label><input id="cNo" placeholder="ACME-FY26">
@@ -151,6 +163,9 @@ tr:hover td{background:#fff}
         <label>valid to</label><input id="cTo" type="date" value="2027-03-31">
         <label>currency</label><input id="cCur" value="USD">
         <button class="btn" onclick="createContract()">Create contract</button></div>
+      <div class="card"><h3>SAP connection points</h3>
+        <p class="reasons">Everything the customer's Basis team needs to wire S/4 to this platform.</p>
+        <div id="sapPoints"></div></div>
     </div>
   </section>
 
@@ -441,14 +456,44 @@ async function loadSetup(){
     const tenants = await api("/tenants");
     document.getElementById("tenantList").innerHTML = tenants.map(t=>`<div>• <b>${esc(t.id)}</b> — ${esc(t.name)}</div>`).join("") || "<i>none yet</i>";
     const sups = await api(`/suppliers?tenant_id=${TENANT}`);
-    document.getElementById("supplierList").innerHTML = sups.map(s=>`<div>• <b>${esc(s.code)}</b> — ${esc(s.name)} <span class="mono" style="font-size:.7rem">(${esc(s.protocol)}${s.has_confirmed_mapping?", mapping saved":""})</span></div>`).join("") || "<i>none yet</i>";
+    document.getElementById("supplierList").innerHTML = sups.map(s=>
+      `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0">
+        <span>• <b>${esc(s.code)}</b> — ${esc(s.name)} <span class="mono" style="font-size:.7rem">(${esc(s.protocol)}, ${esc(s.deployment_mode)}${s.has_shared_secret?", secret set":""}${s.has_confirmed_mapping?", mapping saved":""})</span></span>
+        <button class="btn ghost sm" onclick="inviteVendor('${s.id}','${esc(s.code)}')">Vendor invite</button>
+      </div>`).join("") || "<i>none yet</i>";
+    document.getElementById("sapPoints").innerHTML =
+      `<label>punchout entry (Basis: web catalog URL)</label>`+
+      `<div class="mono" style="font-size:.76rem;word-break:break-all">${location.origin}/api/v1/punchout/oci/start?tenant_id=${esc(TENANT)}</div>`+
+      `<label>po feed (Basis: PO output endpoint)</label>`+
+      `<div class="mono" style="font-size:.76rem;word-break:break-all">POST ${location.origin}/api/v1/po/receive?tenant_id=${esc(TENANT)}<br>Header: X-PO-Key — generate it on the <a href="/orders">Orders</a> page</div>`+
+      `<label>server-side settings</label>`+
+      `<div style="font-size:.8rem;color:var(--ink-soft)">AI keys, SAP system data (company code, purch org, plant, OCI version), database and encryption settings live in <span class="mono">backend/.env</span> — every key is documented in <span class="mono">.env.example</span> and START-HERE. They are deliberately not editable from the browser.</div>`;
     const cons = await api(`/contracts?tenant_id=${TENANT}`);
     document.getElementById("contractList").innerHTML = cons.map(c=>`<div>• <b>${esc(c.contract_no)}</b> ${esc(c.valid_from)} → ${esc(c.valid_to)} ${esc(c.currency)}</div>`).join("") || "<i>none yet</i>";
   }catch(e){ toast(e.message); }
 }
 async function createSupplier(){
-  try{ await api("/suppliers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:sCode.value,name:sName.value,sap_vendor_no:sVendor.value||null,protocol:sProto.value})}); toast("Supplier created"); loadSetup(); }
+  try{
+    await api("/suppliers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      code:sCode.value, name:sName.value, sap_vendor_no:sVendor.value||null, protocol:sProto.value,
+      deployment_mode:sMode.value,
+      punchout_url:sPunchoutUrl.value||null,
+      from_domain:sFromDomain.value||null, from_identity:sFromIdentity.value||null,
+      to_domain:sToDomain.value||null, to_identity:sToIdentity.value||null,
+      shared_secret:sSecret.value||null,
+    })});
+    sSecret.value="";
+    toast("Supplier created"); loadSetup();
+  }
   catch(e){ toast(e.message, 5000); }
+}
+async function inviteVendor(supplierId, code){
+  try{
+    const r = await api(`/suppliers/${supplierId}/vendor-org`, {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    document.getElementById("inviteOut").textContent =
+      `Vendor invite for ${code} (single use — send it to the vendor):\n` + r.invite_code +
+      `\n\nThey register once at ${location.origin}/vendor and then see POs from every customer that links them.`;
+  }catch(e){ toast(e.message, 5000); }
 }
 async function createContract(){
   try{ await api("/contracts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({supplier_code:cSup.value||null,contract_no:cNo.value,valid_from:cFrom.value,valid_to:cTo.value,currency:cCur.value})}); toast("Contract created"); loadSetup(); }
