@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interlock Admin — workflow console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E7EAE4; --paper-raised:#F4F5F1; --ink:#13171B; --ink-soft:#585F63;
+  --rule:#C6CBC2; --cobalt:#1E3ED8; --oxide:#9E3A20; --green:#1F6B3A;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:400 15px/1.55 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:"Bricolage Grotesque",Georgia,serif;font-weight:800;letter-spacing:-.02em;margin:0}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+
+.nav{border-bottom:1px solid var(--rule);position:sticky;top:0;background:var(--paper);z-index:20}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:58px;gap:16px}
+.mark{font-family:"Bricolage Grotesque",serif;font-weight:800;font-size:1.1rem;display:flex;align-items:center;gap:9px}
+.mark span{width:10px;height:10px;background:var(--cobalt);border-radius:2px;display:block}
+.api-dot{display:flex;align-items:center;gap:8px;font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--ink-soft)}
+.api-dot i{width:9px;height:9px;border-radius:50%;background:var(--oxide);display:block}
+.api-dot.up i{background:var(--green)}
+
+.stepper{display:flex;gap:0;border:1px solid var(--rule);margin:26px 0;background:var(--paper-raised);overflow-x:auto}
+.step{flex:1;min-width:118px;padding:12px 14px;border-right:1px solid var(--rule);cursor:pointer;background:none;text-align:left;font:inherit;color:var(--ink-soft)}
+.step:last-child{border-right:none}
+.step .n{font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;display:block;margin-bottom:3px}
+.step .t{font-weight:600;font-size:.92rem;color:var(--ink)}
+.step.active{background:var(--ink);color:#fff}
+.step.active .t{color:#fff}
+.step.active .n{color:#9db1ff}
+
+.panel{display:none;padding-bottom:80px}
+.panel.active{display:block}
+.explain{font-size:.95rem;color:var(--ink-soft);max-width:70ch;margin:10px 0 26px;border-left:3px solid var(--cobalt);padding-left:14px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:22px}
+.card{background:var(--paper-raised);border:1px solid var(--rule);padding:20px}
+.card h3{font-size:1rem;font-weight:600;font-family:"IBM Plex Sans",sans-serif;margin-bottom:14px}
+
+label{display:block;font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:12px 0 4px}
+input,select{width:100%;padding:9px 11px;border:1px solid var(--rule);background:#fff;font:inherit;border-radius:2px}
+input:focus,select:focus{outline:2px solid var(--cobalt);outline-offset:1px}
+.btn{display:inline-block;background:var(--cobalt);color:#fff;border:none;font:500 .88rem "IBM Plex Sans",sans-serif;padding:10px 18px;border-radius:2px;cursor:pointer;margin-top:14px}
+.btn:hover{background:#152FAF}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--rule)}
+.btn.ghost:hover{background:var(--paper)}
+.btn.sm{padding:5px 10px;font-size:.78rem;margin:0}
+.btn.danger{background:var(--oxide)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+table{width:100%;border-collapse:collapse;font-size:.86rem}
+th{font-family:"IBM Plex Mono",monospace;font-size:.64rem;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft);text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule)}
+td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+tr:hover td{background:#fff}
+.table-scroll{overflow-x:auto}
+
+.badge{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.08em;padding:3px 8px;border-radius:2px;border:1px solid var(--rule);white-space:nowrap}
+.badge.auto_approved,.badge.approved,.badge.published,.badge.active,.badge.allow{background:#E2EFE6;border-color:#9EC4AA;color:var(--green)}
+.badge.needs_review,.badge.warn,.badge.loaded,.badge.draft,.badge.route_approval{background:#FBF3D9;border-color:#D8C47E;color:#7A5E0E}
+.badge.manual,.badge.rejected,.badge.block,.badge.expired{background:#F6E3DC;border-color:#D3A08D;color:var(--oxide)}
+.badge.superseded,.badge.returned{background:var(--paper);color:var(--ink-soft)}
+
+.reasons{font-size:.78rem;color:var(--ink-soft);margin-top:4px}
+.out{font-family:"IBM Plex Mono",monospace;font-size:.78rem;background:#fff;border:1px solid var(--rule);padding:12px;margin-top:16px;white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto}
+.out:empty{display:none}
+.pill-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.kpi{display:flex;gap:26px;flex-wrap:wrap;margin:14px 0}
+.kpi div b{font-family:"Bricolage Grotesque",serif;font-size:1.7rem;display:block}
+.kpi div span{font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+.toast{position:fixed;bottom:22px;right:22px;background:var(--ink);color:#fff;padding:12px 18px;font-size:.86rem;border-radius:3px;opacity:0;transition:opacity .2s;z-index:50;max-width:440px}
+.toast.show{opacity:1}
+.editrow td{background:#fff}
+.editrow input{margin-bottom:6px}
+
+/* auth overlay */
+.overlay{position:fixed;inset:0;background:rgba(19,23,27,.55);display:none;align-items:center;justify-content:center;z-index:40}
+.overlay.show{display:flex}
+.authcard{background:var(--paper-raised);border:1px solid var(--rule);padding:30px;width:min(400px,92vw)}
+.authcard h2{margin-bottom:4px}
+.authcard .sub{font-size:.85rem;color:var(--ink-soft);margin-bottom:12px}
+.authtabs{display:flex;gap:0;border:1px solid var(--rule);margin:12px 0}
+.authtabs button{flex:1;padding:8px;background:none;border:none;font:600 .85rem "IBM Plex Sans",sans-serif;cursor:pointer;color:var(--ink-soft)}
+.authtabs button.on{background:var(--ink);color:#fff}
+.autherr{color:var(--oxide);font-size:.83rem;margin-top:10px;min-height:1.2em}
+.userchip{display:flex;align-items:center;gap:10px;font-size:.8rem}
+.userchip .who{font-family:"IBM Plex Mono",monospace;font-size:.72rem}
+.privgrid{display:flex;flex-wrap:wrap;gap:6px 14px}
+.privgrid label{display:flex;align-items:center;gap:6px;margin:0;text-transform:none;letter-spacing:0;font-family:"IBM Plex Sans",sans-serif;font-size:.8rem;color:var(--ink);cursor:pointer}
+.privgrid input{width:auto}
+</style>
+</head>
+<body>
+
+<div class="nav"><div class="wrap">
+  <div class="mark"><span></span>Interlock Admin</div>
+  <div style="display:flex;gap:18px;align-items:center">
+    <div class="userchip" id="userChip" style="display:none">
+      <span class="who" id="whoami"></span>
+      <button class="btn ghost sm" onclick="logout()">Log out</button>
+    </div>
+    <a class="mono" style="font-size:.75rem" href="/docs" target="_blank">API docs ↗</a>
+    <div class="api-dot" id="apiDot"><i></i><span id="apiText">checking…</span></div>
+  </div>
+</div></div>
+
+<div class="overlay" id="authOverlay">
+  <div class="authcard">
+    <h2>Interlock</h2>
+    <div class="sub">Sign in to the workflow console. The first account registered in a tenant becomes its admin.</div>
+    <div class="authtabs">
+      <button id="tabLogin" class="on" onclick="authTab('login')">Log in</button>
+      <button id="tabReg" onclick="authTab('register')">Create account</button>
+    </div>
+    <label>tenant</label><input id="aTenant" value="demo">
+    <label>email</label><input id="aEmail" type="email" placeholder="you@company.com">
+    <div id="regOnly" style="display:none"><label>display name</label><input id="aName" placeholder="Your name"></div>
+    <label>password <span style="text-transform:none;letter-spacing:0">(min 8 chars)</span></label><input id="aPass" type="password">
+    <button class="btn" style="width:100%" id="authGo" onclick="authSubmit()">Log in</button>
+    <div class="autherr" id="authErr"></div>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="stepper" id="stepper"></div>
+
+  <!-- ================= 1 SETUP ================= -->
+  <section class="panel" data-panel="setup">
+    <h2>Setup</h2>
+    <p class="explain">Everything hangs off a <b>tenant</b> (the buying company). <b>Suppliers</b> belong to a tenant; <b>contracts</b> bind a supplier with a validity window and currency — and later, policies and price tiers are clamped to that window.</p>
+    <div class="grid">
+      <div class="card"><h3>Your tenant</h3><div id="tenantList"></div>
+        <p class="reasons" style="margin-top:12px">Tenants are created by registration: the first account registered under a new tenant id bootstraps it and becomes its admin.</p></div>
+      <div class="card"><h3>Suppliers</h3><div id="supplierList"></div>
+        <label>code</label><input id="sCode" placeholder="ACME">
+        <label>name</label><input id="sName" placeholder="Acme Industrial">
+        <label>sap vendor no</label><input id="sVendor" placeholder="0000100234">
+        <label>protocol</label><select id="sProto"><option>hosted</option><option>cxml</option><option>oci</option></select>
+        <button class="btn" onclick="createSupplier()">Create supplier</button></div>
+      <div class="card"><h3>Contracts</h3><div id="contractList"></div>
+        <label>contract no</label><input id="cNo" placeholder="ACME-FY26">
+        <label>supplier code</label><input id="cSup" placeholder="ACME">
+        <label>valid from</label><input id="cFrom" type="date" value="2026-04-01">
+        <label>valid to</label><input id="cTo" type="date" value="2027-03-31">
+        <label>currency</label><input id="cCur" value="USD">
+        <button class="btn" onclick="createContract()">Create contract</button></div>
+    </div>
+  </section>
+
+  <!-- ================= 2 UPLOAD ================= -->
+  <section class="panel" data-panel="upload">
+    <h2>Catalog upload</h2>
+    <p class="explain">Drop a supplier file. The pipeline detects encoding and delimiter, maps columns (German headers included) via the synonym rules — or the supplier's <b>confirmed mapping</b> from a previous load — then normalizes units, parses prices in code, validates hard rules, and triages every row into <span class="badge auto_approved">auto_approved</span> <span class="badge needs_review">needs_review</span> <span class="badge manual">manual</span>.</p>
+    <div class="grid">
+      <div class="card"><h3>Upload a file</h3>
+        <label>catalog file (csv / xlsx)</label><input id="upFile" type="file" accept=".csv,.xlsx">
+        <label>supplier code</label><input id="upSupplier" placeholder="ACME" value="ACME">
+        <button class="btn" onclick="uploadCatalog()">Upload &amp; ingest</button>
+        <a class="btn ghost" style="margin-left:8px" href="/api/catalog/template" download>⬇ Download template</a>
+        <p class="reasons" style="margin-top:10px">Your own file layout also works — the mapper handles foreign headers — but the template's exact headers guarantee a 100% mapping. Tip: <span class="mono">backend/samples/catalog_sample.csv</span> has German headers, mixed units, and one broken row — on purpose.</p>
+        <details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">Format guide — required fields, special characters, decimals</summary>
+        <div class="table-scroll" style="margin-top:10px"><table>
+          <tr><th>column</th><th>req?</th><th>rules</th></tr>
+          <tr><td class="mono">supplier_part_id</td><td><b>required</b></td><td>Max 35 chars (SAP limit). Letters, digits, dash, underscore, period, slash. Avoid commas, semicolons and quotes — they fight the CSV format. Must be unique within the file. A row without one is always sent to manual review; the system never invents part numbers.</td></tr>
+          <tr><td class="mono">description</td><td><b>required</b></td><td>Max 40 chars land in SAP's short text; anything longer is kept but spills to long_description automatically. Accents/umlauts are fine (file should be UTF-8). Avoid line breaks inside a cell.</td></tr>
+          <tr><td class="mono">uom</td><td><b>required</b></td><td>Best: SAP codes EA, PAK, KAR, KG, G, L, ML, M, MM, CM, ROL, PAA, DZ, SET, BT, TU, KI. Common synonyms are auto-normalized (pcs, each, ST, Stk → EA; box, carton → KAR; pair → PAA…). Unknown units stop the row for review.</td></tr>
+          <tr><td class="mono">unit_price</td><td><b>required</b></td><td>Positive number, <b>up to 4 decimal places</b> (e.g. 0.4275). Both 1,234.56 and 1.234,56 styles parse. Currency symbols are tolerated but leave them out. Zero or negative fails the row.</td></tr>
+          <tr><td class="mono">currency</td><td><b>required</b></td><td>3-letter ISO code (USD, EUR, GBP…). One currency per file is best practice.</td></tr>
+          <tr><td class="mono">price_unit</td><td>optional</td><td>Whole number ≥ 1, default 1. "Price is per this many units": price 42.00 with price_unit 100 = 0.42 each. Getting this wrong is the classic 100× purchasing error — when in doubt, use 1 and price per single unit.</td></tr>
+          <tr><td class="mono">unspsc</td><td>optional</td><td>8 or 10 digits, no dots. If missing, classification queues for review (or the AI proposes one when a key is configured).</td></tr>
+          <tr><td class="mono">material_group</td><td>optional</td><td>Your SAP material group. Never auto-approved — it drives GL account determination, so a human always confirms it.</td></tr>
+          <tr><td class="mono">manufacturer / manufacturer_part_id</td><td>optional</td><td>Free text / same character rules as supplier_part_id.</td></tr>
+          <tr><td class="mono">lead_time_days</td><td>optional</td><td>Whole number ≥ 0.</td></tr>
+          <tr><td class="mono">long_description</td><td>optional</td><td>Free text, no practical limit.</td></tr>
+        </table></div></details>
+      </div>
+      <div class="card"><h3>Result</h3>
+        <div class="kpi" id="upKpi"></div>
+        <div class="table-scroll"><table id="upMapping"></table></div>
+        <div class="out" id="upOut"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 3 REVIEW ================= -->
+  <section class="panel" data-panel="review">
+    <h2>Review queue</h2>
+    <p class="explain">The human gate. Each queued row explains <i>why</i> it's here. You can <b>approve</b>, <b>reject</b>, or <b>edit</b> a row — an edit is re-validated by the same hard rules and still needs your approve click. <b>Confirm mapping</b> saves this file's column mapping to the supplier so the next load is zero-touch.</p>
+    <div class="card">
+      <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+        <div style="flex:1;min-width:280px"><label>catalog version</label><select id="revVersion" onchange="loadReview()"></select></div>
+        <div><button class="btn ghost" onclick="loadVersions()">Refresh</button>
+        <button class="btn ghost" onclick="confirmMapping()">Confirm mapping</button></div>
+      </div>
+      <div class="pill-row" id="revCounts"></div>
+      <div class="table-scroll" style="margin-top:14px"><table id="revTable"></table></div>
+    </div>
+  </section>
+
+  <!-- ================= 4 PUBLISH ================= -->
+  <section class="panel" data-panel="publish">
+    <h2>Publish</h2>
+    <p class="explain">Publishing releases the version to the punchout storefront and supersedes the previous published version. The API <b>refuses</b> while any row is still undecided — clear the queue first. Rejected rows simply don't ship.</p>
+    <div class="card"><h3>Versions</h3>
+      <div class="table-scroll"><table id="pubTable"></table></div>
+      <div class="out" id="pubOut"></div>
+    </div>
+  </section>
+
+  <!-- ================= 5 PRICING ================= -->
+  <section class="panel" data-panel="pricing">
+    <h2>Pricing</h2>
+    <p class="explain">Quantity-break ladders load against a contract and are validated as a whole (no gaps, no overlaps, exactly one open-ended top tier, price must fall as quantity rises). Resolution is pure arithmetic — watch <b>price_unit</b>: 35.00 with price_unit 100 means 35 dollars <i>per hundred</i>.</p>
+    <div class="grid">
+      <div class="card"><h3>Upload tiers</h3>
+        <label>tier file (csv)</label><input id="tierFile" type="file" accept=".csv">
+        <label>contract no</label><input id="tierContract" value="ACME-FY26">
+        <label>valid from</label><input id="tierFrom" type="date" value="2026-04-01">
+        <label>valid to</label><input id="tierTo" type="date" value="2027-03-31">
+        <button class="btn" onclick="uploadTiers()">Upload ladder</button>
+        <a class="btn ghost" style="margin-left:8px" href="/api/pricing/tiers/template" download>⬇ Download template</a>
+        <details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">How tiers work — one line per tier</summary>
+          <div style="font-size:.86rem;margin-top:10px">
+          <p><b>3 tiers = 3 lines</b>, grouped by repeating the same <span class="mono">supplier_part_id</span>. There is no "tier 1 / tier 2" label column — <b>the quantity range on each line IS the tier</b>, which removes any chance of labels and ranges disagreeing:</p>
+          <div class="out" style="margin-top:8px">supplier_part_id,min_qty,max_qty,unit_price,price_unit,currency
+ACME-1001,1,9,0.4200,1,USD      ← tier 1: qty 1–9
+ACME-1001,10,49,0.3800,1,USD    ← tier 2: qty 10–49
+ACME-1001,50,,0.3500,1,USD      ← tier 3: qty 50+ (max_qty EMPTY = no upper limit)</div>
+          <p style="margin-top:10px">Rules enforced on upload — the whole ladder is rejected with the exact reason if any fail:</p>
+          <ul style="margin:6px 0 0 18px;padding:0">
+            <li>First tier must start at <b>min_qty 1</b></li>
+            <li><b>No gaps, no overlaps</b>: each tier's max_qty + 1 = next tier's min_qty (…9 → 10…, …49 → 50…)</li>
+            <li><b>Exactly one</b> open-ended top tier (empty max_qty), and it must be the highest</li>
+            <li>Price must <b>fall</b> (or stay equal) as quantity rises — a rising ladder is almost always a data error</li>
+            <li>Prices: positive, <b>up to 4 decimals</b>; one currency per ladder, matching the contract currency</li>
+            <li>Validity dates must fit inside the contract window</li>
+          </ul>
+          <p style="margin-top:10px">Line order in the file doesn't matter — tiers are sorted by min_qty. A part with no tiers simply uses its catalog list price.</p>
+          </div></details>
+        <div class="out" id="tierOut"></div></div>
+      <div class="card"><h3>Resolve a price (what SAP gets)</h3>
+        <label>part</label><input id="prPart" value="ACME-4471">
+        <label>quantity</label><input id="prQty" type="number" value="50" min="1">
+        <label>on date</label><input id="prDate" type="date" value="2026-07-29">
+        <button class="btn" onclick="resolvePrice()">Resolve</button>
+        <div class="kpi" id="prKpi"></div>
+        <div class="out" id="prOut"></div></div>
+    </div>
+  </section>
+
+  <!-- ================= 6 POLICY ================= -->
+  <section class="panel" data-panel="policy">
+    <h2>Policy</h2>
+    <p class="explain">Rules are deterministic code — no model in the request path. Uploads land in <span class="badge draft">draft</span>; activation <b>clamps</b> the window to the bound contract and supersedes overlapping versions. Try the scenarios: every fired rule is shown, and the most severe action wins.</p>
+    <div class="grid">
+      <div class="card"><h3>Policies</h3>
+        <label>policy yaml</label><input id="polFile" type="file" accept=".yaml,.yml">
+        <button class="btn ghost sm" onclick="uploadPolicy()">Upload draft</button>
+        <div class="table-scroll" style="margin-top:12px"><table id="polTable"></table></div>
+        <div class="out" id="polOut"></div></div>
+      <div class="card"><h3>Evaluate a cart line</h3>
+        <label>line total</label><input id="evTotal" type="number" value="6400">
+        <label>competitive quotes</label><input id="evQuotes" type="number" value="1">
+        <label>contracted?</label><select id="evContracted"><option value="true">true</option><option value="false">false</option></select>
+        <label>plant</label><input id="evPlant" placeholder="(blank)">
+        <label>material group</label><input id="evMg" placeholder="(blank)">
+        <div class="pill-row">
+          <button class="btn ghost sm" onclick="preset(6400,1,true,'','')">Needs approval</button>
+          <button class="btn ghost sm" onclick="preset(12000,0,false,'','')">Blocked</button>
+          <button class="btn ghost sm" onclick="preset(150,2,true,'2000','10203040')">EHS scope</button>
+          <button class="btn ghost sm" onclick="preset(150,2,true,'','')">Clean allow</button>
+        </div>
+        <button class="btn" onclick="evaluatePolicy()">Evaluate</button>
+        <div id="evVerdict" style="margin-top:14px"></div>
+        <div class="out" id="evOut"></div></div>
+    </div>
+  </section>
+
+  <!-- ================= USERS ================= -->
+  <section class="panel" data-panel="users">
+    <h2>Users &amp; privileges</h2>
+    <p class="explain">Admin only. Every account holds exactly the privileges you check here — <span class="mono">approve</span> needs <b>catalog_review</b>, releasing a version needs <b>catalog_publish</b>, and so on. The <span class="badge active">admin</span> role implies everything. You can't remove the last active admin — the tenant would lock itself out.</p>
+    <div class="card">
+      <div class="table-scroll"><table id="usersTable"></table></div>
+      <div class="out" id="usersOut"></div>
+    </div>
+  </section>
+
+  <!-- ================= 7 PUNCHOUT ================= -->
+  <section class="panel" data-panel="punchout">
+    <h2>Punchout round trip</h2>
+    <p class="explain">This simulates SAP. Real life: a user clicks the catalog link in S/4, SAP calls <span class="mono">/oci/start</span> with a HOOK_URL, the user shops here, and the cart flies back as <span class="mono">NEW_ITEM-*</span> fields. Here the hook points at our built-in mock so you can watch the whole loop.</p>
+    <div class="grid">
+      <div class="card"><h3>1 · Session &amp; storefront</h3>
+        <button class="btn" onclick="startSession()">Start punchout session (as SAP)</button>
+        <div class="reasons" id="sessInfo"></div>
+        <div class="table-scroll" style="margin-top:12px"><table id="storeTable"></table></div></div>
+      <div class="card"><h3>2 · Cart → back to SAP</h3>
+        <div class="table-scroll"><table id="cartTable"></table></div>
+        <button class="btn" id="returnBtn" onclick="returnCart()" disabled>Return cart to SAP (via mock hook)</button>
+        <div class="out" id="pxOut"></div></div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = location.protocol.startsWith("http") ? location.origin + "/api" : "http://localhost:8080/api";
+let TENANT = "demo";   // display + open endpoints; gated endpoints derive it server-side from the token
+let SESSION = null;
+let ME = null;
+let TOKEN = sessionStorage.getItem("interlock_token") || null;
+
+/* ---------- plumbing ---------- */
+function toast(msg, ms=3500){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
+async function api(path, opts={}){
+  opts.headers = Object.assign({}, opts.headers, TOKEN ? {"Authorization":"Bearer "+TOKEN} : {});
+  const res = await fetch(API+path, opts);
+  const body = await res.json().catch(()=>({}));
+  if(res.status===401 && !path.startsWith("/auth/")){ showAuth(); }
+  if(!res.ok){ const msg = body.detail ? (typeof body.detail==="string"?body.detail:JSON.stringify(body.detail)) : res.statusText; throw new Error(`${res.status}: ${msg}`); }
+  return body;
+}
+
+/* ---------- auth ---------- */
+let AUTH_MODE = "login";
+function showAuth(){ document.getElementById("authOverlay").classList.add("show"); }
+function hideAuth(){ document.getElementById("authOverlay").classList.remove("show"); }
+function authTab(mode){
+  AUTH_MODE = mode;
+  tabLogin.classList.toggle("on", mode==="login");
+  tabReg.classList.toggle("on", mode==="register");
+  regOnly.style.display = mode==="register" ? "block" : "none";
+  authGo.textContent = mode==="register" ? "Create account" : "Log in";
+  authErr.textContent = "";
+}
+async function authSubmit(){
+  authErr.textContent = "";
+  const payload = { tenant_id:aTenant.value.trim(), email:aEmail.value.trim(), password:aPass.value };
+  if(AUTH_MODE==="register") payload.display_name = aName.value.trim();
+  try{
+    const r = await api(`/auth/${AUTH_MODE}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    TOKEN = r.token; ME = r.user;
+    sessionStorage.setItem("interlock_token", TOKEN);
+    if(r.note) toast(r.note, 6000);
+    afterLogin();
+  }catch(e){ authErr.textContent = e.message.replace(/^\d+:\s*/,""); }
+}
+async function logout(){
+  try{ await api("/auth/logout", {method:"POST"}); }catch{}
+  TOKEN=null; ME=null; sessionStorage.removeItem("interlock_token");
+  userChip.style.display="none"; showAuth();
+}
+function afterLogin(){
+  hideAuth();
+  TENANT = ME.tenant_id;
+  whoami.textContent = `${ME.email} · ${ME.role} · ${ME.tenant_id}`;
+  userChip.style.display="flex";
+  // The Users step only makes sense with the manage_users privilege.
+  document.querySelector('[data-step="users"]').style.display =
+    (ME.role==="admin" || ME.privileges.includes("manage_users")) ? "" : "none";
+  show("setup");
+}
+async function bootAuth(){
+  if(TOKEN){
+    try{ ME = await api("/auth/me"); afterLogin(); return; }
+    catch{ TOKEN=null; sessionStorage.removeItem("interlock_token"); }
+  }
+  showAuth();
+}
+
+/* ---------- users panel ---------- */
+let PRIVS = [];
+async function loadUsers(){
+  try{
+    if(!PRIVS.length) PRIVS = await api("/auth/privileges");
+    const users = await api("/auth/users");
+    usersTable.innerHTML = `<tr><th>user</th><th>role</th><th>privileges</th><th>active</th><th></th></tr>` +
+      users.map(u=>`<tr data-uid="${u.id}">
+        <td><b>${esc(u.display_name)}</b><div class="reasons mono">${esc(u.email)}</div></td>
+        <td><select data-role ${u.id===ME.id?"disabled":""}>
+          <option value="member" ${u.role==="member"?"selected":""}>member</option>
+          <option value="admin" ${u.role==="admin"?"selected":""}>admin</option></select></td>
+        <td><div class="privgrid">${PRIVS.map(p=>`<label><input type="checkbox" data-priv="${p}" ${u.role==="admin"?"checked disabled":(u.privileges.includes(p)?"checked":"")}> ${p}</label>`).join("")}</div></td>
+        <td style="text-align:center"><input type="checkbox" data-active ${u.active?"checked":""} ${u.id===ME.id?"disabled":""}></td>
+        <td><button class="btn sm" onclick="saveUser('${u.id}')">Save</button></td></tr>`).join("");
+  }catch(e){ usersOut.textContent = e.message; }
+}
+async function saveUser(uid){
+  const tr = document.querySelector(`tr[data-uid="${uid}"]`);
+  const body = {
+    role: tr.querySelector("[data-role]").value,
+    active: tr.querySelector("[data-active]").checked,
+    privileges: [...tr.querySelectorAll("[data-priv]:checked")].map(c=>c.dataset.priv),
+  };
+  try{
+    const r = await api(`/auth/users/${uid}`, {method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    toast(`Saved ${r.email} — ${r.role}, ${r.privileges.length} privilege(s)`); loadUsers();
+  }catch(e){ toast(e.message, 6000); }
+}
+function esc(s){ return String(s??"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function badge(v){ return `<span class="badge ${esc(v)}">${esc(v)}</span>`; }
+
+/* ---------- stepper ---------- */
+const STEPS = [
+  ["setup","01","Setup"],["upload","02","Upload"],["review","03","Review"],
+  ["publish","04","Publish"],["pricing","05","Pricing"],["policy","06","Policy"],
+  ["punchout","07","Punchout"],["users","08","Users"],
+];
+const stepper = document.getElementById("stepper");
+STEPS.forEach(([key,n,t])=>{
+  const b=document.createElement("button"); b.className="step"; b.dataset.step=key;
+  b.innerHTML=`<span class="n">${n}</span><span class="t">${t}</span>`;
+  b.onclick=()=>show(key); stepper.appendChild(b);
+});
+function show(key){
+  document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("active", p.dataset.panel===key));
+  document.querySelectorAll(".step").forEach(s=>s.classList.toggle("active", s.dataset.step===key));
+  ({setup:loadSetup, review:loadVersions, publish:loadPublish, policy:loadPolicies, users:loadUsers}[key]||(()=>{}))();
+}
+
+/* ---------- health ---------- */
+async function health(){
+  const dot=document.getElementById("apiDot"), txt=document.getElementById("apiText");
+  try{ await api("/health"); dot.classList.add("up"); txt.textContent="api up · :8080"; }
+  catch{ dot.classList.remove("up"); txt.textContent="api DOWN — start uvicorn"; }
+}
+setInterval(health, 5000);
+
+/* ---------- 1 setup ---------- */
+async function loadSetup(){
+  try{
+    const tenants = await api("/tenants");
+    document.getElementById("tenantList").innerHTML = tenants.map(t=>`<div>• <b>${esc(t.id)}</b> — ${esc(t.name)}</div>`).join("") || "<i>none yet</i>";
+    const sups = await api(`/suppliers?tenant_id=${TENANT}`);
+    document.getElementById("supplierList").innerHTML = sups.map(s=>`<div>• <b>${esc(s.code)}</b> — ${esc(s.name)} <span class="mono" style="font-size:.7rem">(${esc(s.protocol)}${s.has_confirmed_mapping?", mapping saved":""})</span></div>`).join("") || "<i>none yet</i>";
+    const cons = await api(`/contracts?tenant_id=${TENANT}`);
+    document.getElementById("contractList").innerHTML = cons.map(c=>`<div>• <b>${esc(c.contract_no)}</b> ${esc(c.valid_from)} → ${esc(c.valid_to)} ${esc(c.currency)}</div>`).join("") || "<i>none yet</i>";
+  }catch(e){ toast(e.message); }
+}
+async function createSupplier(){
+  try{ await api("/suppliers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:sCode.value,name:sName.value,sap_vendor_no:sVendor.value||null,protocol:sProto.value})}); toast("Supplier created"); loadSetup(); }
+  catch(e){ toast(e.message, 5000); }
+}
+async function createContract(){
+  try{ await api("/contracts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({supplier_code:cSup.value||null,contract_no:cNo.value,valid_from:cFrom.value,valid_to:cTo.value,currency:cCur.value})}); toast("Contract created"); loadSetup(); }
+  catch(e){ toast(e.message, 5000); }
+}
+
+/* ---------- 2 upload ---------- */
+async function uploadCatalog(){
+  const f = upFile.files[0];
+  if(!f) return toast("Pick a file first");
+  const fd = new FormData();
+  fd.append("file", f); fd.append("supplier_code", upSupplier.value); fd.append("tenant_id", TENANT);
+  try{
+    const r = await api("/catalog/upload", {method:"POST", body:fd});
+    upKpi.innerHTML = Object.entries(r.states).map(([k,v])=>`<div><b>${v}</b><span>${esc(k)}</span></div>`).join("") + `<div><b>${r.row_count}</b><span>rows</span></div>`;
+    upMapping.innerHTML = `<tr><th>source column</th><th>→ canonical field</th><th>conf</th><th>how</th></tr>` +
+      r.mapping.mappings.map(m=>`<tr><td class="mono">${esc(m.source_column)}</td><td class="mono">${esc(m.target_field)}</td><td>${m.confidence}</td><td>${esc(m.rationale||r.mapping.source)}</td></tr>`).join("");
+    upOut.textContent = `version ${r.version_no} (${r.version_id})\nmapping source: ${r.mapping.source}` + (r.mapping.missing_required.length? `\nMISSING REQUIRED: ${r.mapping.missing_required}`:"");
+    toast(`Ingested ${r.row_count} rows → v${r.version_no}. Next: Review.`);
+  }catch(e){ toast(e.message, 6000); }
+}
+
+/* ---------- 3 review ---------- */
+async function loadVersions(){
+  try{
+    const vs = await api(`/catalog/versions?tenant_id=${TENANT}`);
+    revVersion.innerHTML = vs.map(v=>`<option value="${v.version_id}">v${v.version_no} · ${esc(v.supplier_code)} · ${esc(v.status)} · ${esc(v.source_filename||"")}</option>`).join("");
+    if(vs.length) loadReview();
+  }catch(e){ toast(e.message); }
+}
+async function loadReview(){
+  const vid = revVersion.value; if(!vid) return;
+  try{
+    const r = await api(`/catalog/versions/${vid}/review`);
+    const counts = {};
+    r.items.forEach(i=>counts[i.state]=(counts[i.state]||0)+1);
+    revCounts.innerHTML = Object.entries(counts).map(([k,v])=>`${badge(k)} <b style="margin-right:10px">${v}</b>`).join("");
+    revTable.innerHTML = `<tr><th>part</th><th>description</th><th>uom</th><th>price</th><th>state · conf</th><th>why it's queued</th><th>actions</th></tr>` +
+      r.items.map(i=>{
+        const editable = r.status==="loaded";
+        const acts = editable ? `
+          <button class="btn sm" onclick="decide('${i.id}','approve')">Approve</button>
+          <button class="btn sm danger" onclick="decide('${i.id}','reject')">Reject</button>
+          <button class="btn sm ghost" onclick="editRow('${i.id}', this)">Edit</button>` : "—";
+        return `<tr data-item="${i.id}">
+          <td class="mono">${esc(i.supplier_part_id||"∅")}</td>
+          <td>${esc(i.description||"")}</td>
+          <td class="mono">${esc(i.uom_raw||"")}${i.uom_sap?` → ${esc(i.uom_sap)}`:""}</td>
+          <td class="mono">${i.unit_price??""} ${esc(i.currency||"")}${i.price_unit>1?` /${i.price_unit}`:""}</td>
+          <td>${badge(i.state)}<div class="reasons">${i.confidence??""}</div></td>
+          <td><div class="reasons">${(i.review_reasons||[]).map(esc).join("<br>")||"—"}</div></td>
+          <td style="white-space:nowrap">${acts}</td></tr>`;
+      }).join("");
+  }catch(e){ toast(e.message); }
+}
+async function decide(id, decision){
+  try{ await api(`/catalog/items/${id}/decide?decision=${decision}&actor=admin-ui`, {method:"POST"}); loadReview(); }
+  catch(e){ toast(e.message, 5000); }
+}
+function editRow(id, btn){
+  const tr = btn.closest("tr");
+  if(tr.nextElementSibling?.classList.contains("editrow")) { tr.nextElementSibling.remove(); return; }
+  const row = document.createElement("tr"); row.className="editrow";
+  row.innerHTML = `<td colspan="7">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+      <div><label>part id</label><input data-f="supplier_part_id"></div>
+      <div><label>description</label><input data-f="description"></div>
+      <div><label>uom</label><input data-f="uom_raw" placeholder="e.g. KAR"></div>
+      <div><label>unit price</label><input data-f="unit_price" type="number" step="0.0001"></div>
+      <div><label>price unit</label><input data-f="price_unit" type="number"></div>
+      <div><label>currency</label><input data-f="currency"></div>
+    </div>
+    <button class="btn sm" style="margin-top:10px" onclick="saveEdit('${id}', this)">Save &amp; re-validate</button>
+    <span class="reasons"> Only filled fields are changed. The row re-enters the queue as needs_review.</span></td>`;
+  tr.after(row);
+}
+async function saveEdit(id, btn){
+  const body = {};
+  btn.closest("td").querySelectorAll("input[data-f]").forEach(i=>{
+    if(i.value!=="") body[i.dataset.f] = (i.type==="number") ? Number(i.value) : i.value;
+  });
+  try{
+    const r = await api(`/catalog/items/${id}?actor=admin-ui`, {method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    toast(`Re-validated → ${r.state}`); loadReview();
+  }catch(e){ toast(e.message, 6000); }
+}
+async function confirmMapping(){
+  try{ const r = await api(`/catalog/versions/${revVersion.value}/confirm-mapping?actor=admin-ui`, {method:"POST"}); toast(`Mapping saved for ${r.supplier_code} — next load is zero-touch`); }
+  catch(e){ toast(e.message); }
+}
+
+/* ---------- 4 publish ---------- */
+async function loadPublish(){
+  try{
+    const vs = await api(`/catalog/versions?tenant_id=${TENANT}`);
+    pubTable.innerHTML = `<tr><th>version</th><th>supplier</th><th>status</th><th>rows</th><th>states</th><th></th></tr>` +
+      vs.map(v=>`<tr><td>v${v.version_no}</td><td class="mono">${esc(v.supplier_code)}</td><td>${badge(v.status)}</td><td>${v.row_count}</td>
+        <td class="mono" style="font-size:.72rem">${esc(Object.entries(v.states).map(([k,c])=>`${k}:${c}`).join("  "))}</td>
+        <td>${v.status==="loaded"?`<button class="btn sm" onclick="publish('${v.version_id}')">Publish</button>`:""}</td></tr>`).join("");
+  }catch(e){ toast(e.message); }
+}
+async function publish(vid){
+  try{
+    const r = await api(`/catalog/versions/${vid}/publish?actor=admin-ui`, {method:"POST"});
+    pubOut.textContent = JSON.stringify(r, null, 2); toast(`Published ${r.published_items} items`); loadPublish();
+  }catch(e){ pubOut.textContent = "REFUSED — " + e.message; toast(e.message, 6000); }
+}
+
+/* ---------- 5 pricing ---------- */
+async function uploadTiers(){
+  const f = tierFile.files[0]; if(!f) return toast("Pick a tier csv");
+  const fd = new FormData();
+  fd.append("file", f); fd.append("contract_no", tierContract.value); fd.append("tenant_id", TENANT);
+  if(tierFrom.value) fd.append("valid_from", tierFrom.value);
+  if(tierTo.value) fd.append("valid_to", tierTo.value);
+  try{ const r = await api("/pricing/tiers/upload", {method:"POST", body:fd}); tierOut.textContent = JSON.stringify(r, null, 2); toast(`${r.tiers_created} tiers created`); }
+  catch(e){ toast(e.message, 6000); }
+}
+async function resolvePrice(){
+  try{
+    const r = await api(`/pricing/resolve?part=${encodeURIComponent(prPart.value)}&quantity=${prQty.value}&tenant_id=${TENANT}&on=${prDate.value}`);
+    prKpi.innerHTML = `<div><b>${r.unit_price}</b><span>unit price ${r.price_unit>1?`per ${r.price_unit}`:""}</span></div>
+      <div><b>${r.effective_unit_price}</b><span>effective / unit</span></div>
+      <div><b>${r.extended}</b><span>extended ${esc(r.currency)}</span></div>
+      <div><b>${esc(r.source)}</b><span>source</span></div>`;
+    prOut.textContent = r.next_break ? `Next break: qty ${r.next_break.qty} → ${r.next_break.unit_price}/unit (save ${r.next_break.saving_per_unit}/unit)` : "No cheaper break above this quantity.";
+  }catch(e){ toast(e.message, 5000); }
+}
+
+/* ---------- 6 policy ---------- */
+async function loadPolicies(){
+  try{
+    const ps = await api(`/policy?tenant_id=${TENANT}`);
+    polTable.innerHTML = `<tr><th>code · v</th><th>status</th><th>requested</th><th>effective</th><th>rules</th><th></th></tr>` +
+      ps.map(p=>`<tr><td class="mono">${esc(p.code)} · v${p.version_no}</td><td>${badge(p.status)}${p.clamped?'<div class="reasons">clamped</div>':""}</td>
+        <td class="mono" style="font-size:.72rem">${esc(p.requested_from)}<br>→ ${esc(p.requested_to)}</td>
+        <td class="mono" style="font-size:.72rem">${p.effective_from?`${esc(p.effective_from)}<br>→ ${esc(p.effective_to)}`:"—"}</td>
+        <td>${p.rules.length}</td>
+        <td>${p.status==="draft"?`<button class="btn sm" onclick="activatePolicy('${p.id}')">Activate</button>`:""}</td></tr>`).join("");
+  }catch(e){ toast(e.message); }
+}
+async function uploadPolicy(){
+  const f = polFile.files[0]; if(!f) return toast("Pick a policy yaml");
+  const fd = new FormData(); fd.append("file", f);
+  try{ const r = await api(`/policy/upload?tenant_id=${TENANT}&actor=admin-ui`, {method:"POST", body:fd}); toast(`Draft ${r.code} v${r.version_no} created`); loadPolicies(); }
+  catch(e){ toast(e.message, 6000); }
+}
+async function activatePolicy(id){
+  try{
+    const r = await api(`/policy/${id}/activate?actor=admin-ui`, {method:"POST"});
+    polOut.textContent = r.clamp_note || "Activated without clamping.";
+    toast(`Activated — effective ${r.effective_from} → ${r.effective_to}`); loadPolicies();
+  }catch(e){ toast(e.message, 6000); }
+}
+function preset(total, quotes, contracted, plant, mg){
+  evTotal.value=total; evQuotes.value=quotes; evContracted.value=String(contracted); evPlant.value=plant; evMg.value=mg;
+  evaluatePolicy();
+}
+async function evaluatePolicy(){
+  const ctx = { line_total:Number(evTotal.value), competitive_quotes:Number(evQuotes.value), is_contracted:evContracted.value==="true" };
+  if(evPlant.value) ctx.plant = evPlant.value;
+  if(evMg.value) ctx.material_group = evMg.value;
+  try{
+    const r = await api(`/policy/evaluate?tenant_id=${TENANT}&on=2026-07-29`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(ctx)});
+    evVerdict.innerHTML = `Outcome: ${badge(r.outcome)}`;
+    evOut.textContent = r.fired_rules.length
+      ? r.fired_rules.map(f=>`${f.rule} [${f.action}${f.route_to?` → ${f.route_to}`:""}] — ${f.description}`).join("\n")
+      : "No rules fired.";
+  }catch(e){ toast(e.message, 5000); }
+}
+
+/* ---------- 7 punchout ---------- */
+async function startSession(){
+  try{
+    const r = await api(`/punchout/oci/start?tenant_id=${TENANT}&HOOK_URL=${encodeURIComponent(API+"/punchout/oci/mock-hook")}&USERNAME=ADMIN-UI`);
+    SESSION = r.session_id;
+    sessInfo.innerHTML = `Session <span class="mono">${esc(SESSION)}</span> open · OCI ${esc(r.oci_version)} · hook → mock`;
+    returnBtn.disabled = true; pxOut.textContent = ""; renderCart([]);
+    const items = await api(`/catalog/items?tenant_id=${TENANT}`);
+    storeTable.innerHTML = `<tr><th>part</th><th>description</th><th>list</th><th>qty</th><th></th></tr>` +
+      items.map(i=>`<tr><td class="mono">${esc(i.supplier_part_id)}</td><td>${esc(i.description)}</td>
+        <td class="mono">${i.unit_price} ${esc(i.currency)}${i.price_unit>1?` /${i.price_unit}`:""}</td>
+        <td style="width:74px"><input type="number" value="1" min="1" id="qty-${esc(i.supplier_part_id)}"></td>
+        <td><button class="btn sm" onclick="addToCart('${esc(i.supplier_part_id)}')">Add</button></td></tr>`).join("");
+    toast("Session open — this is what a punchout user sees");
+  }catch(e){ toast(e.message, 5000); }
+}
+async function addToCart(part){
+  if(!SESSION) return toast("Start a session first");
+  const qty = Number(document.getElementById(`qty-${part}`).value)||1;
+  try{
+    const r = await api(`/punchout/sessions/${SESSION}/cart/add`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({part, quantity:qty})});
+    const s = await api(`/punchout/sessions/${SESSION}`);
+    renderCart(s.cart||[]);
+    if(r.added.next_break) toast(`Added. Tip: at qty ${r.added.next_break.qty} the unit price drops to ${r.added.next_break.unit_price}`);
+  }catch(e){ toast(e.message, 5000); }
+}
+function renderCart(cart){
+  cartTable.innerHTML = `<tr><th>part</th><th>qty</th><th>unit price</th><th>vendor</th></tr>` +
+    cart.map(l=>`<tr><td class="mono">${esc(l.part)}</td><td>${l.quantity}</td>
+      <td class="mono">${l.unit_price} ${esc(l.currency)}${l.price_unit>1?` /${l.price_unit}`:""}</td>
+      <td class="mono">${esc(l.vendor)}</td></tr>`).join("");
+  returnBtn.disabled = !cart.length;
+}
+async function returnCart(){
+  try{
+    const r = await api(`/punchout/sessions/${SESSION}/return?format=json`, {method:"POST"});
+    // Play the browser: actually POST the fields to the mock hook, like the auto-submit form would.
+    const fd = new FormData();
+    Object.entries(r.fields).forEach(([k,v])=>fd.append(k,v));
+    const hook = await fetch(r.hook_url, {method:"POST", body:fd}).then(x=>x.json());
+    pxOut.textContent = "OCI fields sent to SAP (HOOK_URL):\n\n" +
+      Object.entries(r.fields).map(([k,v])=>`${k} = ${v}`).join("\n") +
+      "\n\n— mock SAP hook acknowledged " + Object.keys(hook.received_fields).length + " fields.";
+    returnBtn.disabled = true; toast("Cart returned — session closed. In real life you'd now be back in the SAP requisition screen.");
+  }catch(e){ toast(e.message, 6000); }
+}
+
+/* ---------- boot ---------- */
+health(); bootAuth();
+</script>
+</body>
+</html>

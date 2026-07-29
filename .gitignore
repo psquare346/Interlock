@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Local data — never commit databases or secrets
+*.db
+*.sqlite3
+.env
+backend/.env
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

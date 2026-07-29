@@ -1,0 +1,48 @@
+# Sample procurement policy. The requested window is deliberately WIDER than
+# contract ACME-FY26 (2026-04-01 .. 2027-03-31) so activation demonstrates the
+# clamp: effective window = requested ∩ contract.
+code: PROC-STD
+name: Standard procurement guardrails
+contract_no: ACME-FY26
+requested_from: 2026-01-01
+requested_to: 2027-12-31
+
+rules:
+  - code: QUOTES-5K
+    description: Lines over $5,000 need two competitive quotes or approval
+    action: route_approval
+    route_to: category_manager
+    severity: medium
+    condition:
+      all:
+        - {field: line_total, op: gt, value: 5000}
+        - {field: competitive_quotes, op: lt, value: 2}
+
+  - code: BLOCK-10K-OFFCONTRACT
+    description: Non-contracted purchases over $10,000 are blocked
+    action: block
+    severity: high
+    condition:
+      all:
+        - {field: line_total, op: gt, value: 10000}
+        - {field: is_contracted, op: eq, value: false}
+
+  - code: WARN-CONTRACT-EXPIRY
+    description: Warn when the covering contract expires within 30 days
+    action: warn
+    severity: low
+    condition:
+      all:
+        - {field: contract_days_remaining, op: lt, value: 30}
+
+  - code: SCOPED-PLANT-EXAMPLE
+    description: Plant 2000 routes chemicals to EHS review
+    action: route_approval
+    route_to: ehs_officer
+    severity: medium
+    scope:
+      plants: ["2000"]
+      material_groups: ["10203040"]
+    condition:
+      all:
+        - {field: line_total, op: gt, value: 0}

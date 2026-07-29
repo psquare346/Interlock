@@ -1,0 +1,6 @@
+supplier_part_id,min_qty,max_qty,unit_price,price_unit,currency
+ACME-1001,1,9,0.4200,1,USD
+ACME-1001,10,49,0.3800,1,USD
+ACME-1001,50,,0.3500,1,USD
+ACME-1002,1,24,6.20,1,USD
+ACME-1002,25,,5.60,1,USD

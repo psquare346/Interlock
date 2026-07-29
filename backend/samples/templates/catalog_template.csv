@@ -1,0 +1,5 @@
+supplier_part_id,description,uom,unit_price,currency,price_unit,unspsc,material_group,manufacturer,manufacturer_part_id,lead_time_days,long_description
+ACME-1001,Hex bolt M8x40 zinc plated DIN 933,EA,0.4200,USD,1,31161616,,Acme Fastener,HB-M8-40,5,
+ACME-1002,Safety glasses clear anti-fog EN 166,EA,6.20,USD,1,46181802,,SafetyFirst,SG-100,3,
+ACME-1003,Cable ties 200x4.8mm black,PAK,12.40,USD,1,39131709,,ElektroPlus,CT-200-100,7,Pack of 100 black nylon cable ties UV resistant
+ACME-1004,Machine cleaner concentrate 5L,EA,24.90,USD,1,47131805,,CleanTech,MC-5L,10,Concentrated industrial cleaner for workshop floors and machines. Dilution 1:20.

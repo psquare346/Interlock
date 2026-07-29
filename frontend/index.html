@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interlock — punchout catalogs for SAP S/4HANA</title>
+<meta name="description" content="A catalog and punchout gateway that plugs into S/4HANA over OCI and brokers to any supplier over cXML.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E7EAE4;
+  --paper-raised:#F4F5F1;
+  --ink:#13171B;
+  --ink-soft:#585F63;
+  --rule:#C6CBC2;
+  --cobalt:#1E3ED8;
+  --oxide:#9E3A20;
+  --measure:72ch;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
+
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font:400 17px/1.6 "IBM Plex Sans",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+
+.wrap{max-width:1120px;margin:0 auto;padding:0 28px}
+
+h1,h2,h3{font-family:"Bricolage Grotesque",Georgia,serif;font-weight:800;letter-spacing:-.03em;line-height:1.02;margin:0}
+h1{font-size:clamp(2.6rem,6.4vw,5rem)}
+h2{font-size:clamp(1.9rem,3.6vw,2.9rem);letter-spacing:-.025em}
+h3{font-size:1.12rem;font-weight:600;letter-spacing:-.01em}
+p{margin:0 0 1em}
+
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+
+.eyebrow{
+  font-family:"IBM Plex Mono",monospace;font-size:.7rem;font-weight:500;
+  letter-spacing:.19em;text-transform:uppercase;color:var(--ink-soft);
+  display:flex;align-items:center;gap:12px;margin-bottom:22px;
+}
+.eyebrow::after{content:"";flex:1;height:1px;background:var(--rule);max-width:120px}
+
+a{color:var(--cobalt)}
+:focus-visible{outline:2.5px solid var(--cobalt);outline-offset:3px;border-radius:2px}
+
+/* ---------- nav ---------- */
+.nav{border-bottom:1px solid var(--rule);position:sticky;top:0;background:var(--paper);z-index:20}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:66px;gap:20px}
+.mark{font-family:"Bricolage Grotesque",serif;font-weight:800;font-size:1.22rem;letter-spacing:-.03em;text-decoration:none;color:var(--ink);display:flex;align-items:center;gap:10px}
+.mark span{display:block;width:11px;height:11px;background:var(--cobalt);border-radius:2px}
+.nav-links{display:flex;gap:30px;align-items:center}
+.nav-links a{font-size:.9rem;color:var(--ink-soft);text-decoration:none}
+.nav-links a:hover{color:var(--ink)}
+@media(max-width:760px){.nav-links a:not(.btn){display:none}}
+
+.btn{
+  display:inline-block;background:var(--cobalt);color:#fff;text-decoration:none;
+  font-size:.9rem;font-weight:500;padding:11px 20px;border-radius:3px;
+  transition:transform .12s ease,background .12s ease;
+}
+.btn:hover{background:#152FAF;transform:translateY(-1px)}
+.btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--rule)}
+.btn-ghost:hover{background:var(--paper-raised);border-color:var(--ink-soft)}
+
+/* ---------- hero ---------- */
+.hero{padding:88px 0 20px}
+.hero h1 em{font-style:normal;color:var(--cobalt)}
+.hero .lede{font-size:1.2rem;color:var(--ink-soft);max-width:62ch;margin-top:28px}
+.hero .actions{display:flex;gap:14px;margin-top:34px;flex-wrap:wrap}
+
+/* ---------- signature: the protocol trace ---------- */
+.trace{margin:76px 0 0;border-top:1px solid var(--rule);padding-top:34px}
+.trace-cap{
+  display:flex;justify-content:space-between;align-items:baseline;
+  font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px;flex-wrap:wrap;gap:8px;
+}
+.trace svg{width:100%;height:auto;display:block;overflow:visible}
+
+.node-box{fill:var(--paper-raised);stroke:var(--rule);stroke-width:1}
+.node-box.self{stroke:var(--cobalt);stroke-width:1.6}
+.node-label{font-family:"IBM Plex Sans",sans-serif;font-size:12.5px;font-weight:600;fill:var(--ink)}
+.node-sub{font-family:"IBM Plex Mono",monospace;font-size:9.5px;fill:var(--ink-soft);letter-spacing:.06em}
+.wire{stroke:var(--rule);stroke-width:1.5;fill:none}
+.wire-live{stroke:var(--cobalt);stroke-width:1.8;fill:none;stroke-dasharray:6 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-12}}
+.msg{font-family:"IBM Plex Mono",monospace;font-size:9.5px;fill:var(--ink-soft)}
+.msg.hot{fill:var(--cobalt);font-weight:500}
+.packet{fill:var(--cobalt)}
+.hop{opacity:0}
+.hop.on{opacity:1}
+.trace-note{font-size:.9rem;color:var(--ink-soft);margin-top:20px;max-width:64ch}
+
+/* ---------- sections ---------- */
+section{padding:96px 0;border-top:1px solid var(--rule)}
+.section-lede{font-size:1.08rem;color:var(--ink-soft);max-width:60ch;margin-top:18px}
+
+/* cost argument */
+.ledger{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:52px;border:1px solid var(--rule)}
+@media(max-width:760px){.ledger{grid-template-columns:1fr}}
+.ledger-col{padding:34px}
+.ledger-col + .ledger-col{border-left:1px solid var(--rule)}
+@media(max-width:760px){.ledger-col + .ledger-col{border-left:none;border-top:1px solid var(--rule)}}
+.ledger-col.now{background:var(--paper)}
+.ledger-col.alt{background:var(--paper-raised)}
+.ledger-tag{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.17em;text-transform:uppercase;margin-bottom:20px}
+.now .ledger-tag{color:var(--oxide)}
+.alt .ledger-tag{color:var(--cobalt)}
+.figure{font-family:"Bricolage Grotesque",serif;font-weight:800;font-size:clamp(2.2rem,4.4vw,3.2rem);letter-spacing:-.035em;line-height:1}
+.now .figure{color:var(--oxide)}
+.alt .figure{color:var(--cobalt)}
+.figure-sub{font-family:"IBM Plex Mono",monospace;font-size:.78rem;color:var(--ink-soft);margin-top:10px}
+.ledger-list{list-style:none;padding:0;margin:26px 0 0;font-size:.95rem}
+.ledger-list li{padding:9px 0;border-top:1px solid var(--rule);color:var(--ink-soft);display:flex;gap:12px}
+.ledger-list li::before{content:"—";color:var(--rule);flex:none}
+
+/* diff table */
+.diff{margin-top:48px;border:1px solid var(--rule);background:var(--paper-raised);overflow-x:auto}
+.diff table{border-collapse:collapse;width:100%;min-width:640px;font-family:"IBM Plex Mono",monospace;font-size:.79rem}
+.diff th{
+  text-align:left;padding:13px 16px;border-bottom:1px solid var(--rule);
+  font-weight:500;letter-spacing:.13em;text-transform:uppercase;font-size:.66rem;color:var(--ink-soft);
+}
+.diff td{padding:11px 16px;border-bottom:1px solid var(--rule);vertical-align:top}
+.diff tr:last-child td{border-bottom:none}
+.was{color:var(--oxide)}
+.now-val{color:var(--cobalt);font-weight:500}
+.flagged{color:var(--ink-soft);font-family:"IBM Plex Sans",sans-serif;font-size:.82rem}
+
+/* price ladder */
+.ladder{display:grid;gap:0;margin-top:44px;border:1px solid var(--rule);background:var(--paper-raised)}
+.rung{display:grid;grid-template-columns:130px 1fr 110px;align-items:center;gap:20px;padding:15px 22px;border-bottom:1px solid var(--rule)}
+.rung:last-child{border-bottom:none}
+@media(max-width:620px){.rung{grid-template-columns:90px 1fr 82px;gap:12px;padding:13px 14px}}
+.rung-qty{font-family:"IBM Plex Mono",monospace;font-size:.8rem;color:var(--ink-soft)}
+.rung-bar{height:10px;background:var(--cobalt);border-radius:1px;opacity:.85}
+.rung-price{font-family:"IBM Plex Mono",monospace;font-size:.95rem;text-align:right;font-weight:500}
+
+/* policy timeline */
+.timeline{margin-top:46px;border:1px solid var(--rule);background:var(--paper-raised);padding:32px 28px}
+.tl-row{display:grid;grid-template-columns:168px 1fr;gap:22px;align-items:center;margin-bottom:20px}
+@media(max-width:680px){.tl-row{grid-template-columns:1fr;gap:8px}}
+.tl-label{font-family:"IBM Plex Mono",monospace;font-size:.74rem;color:var(--ink-soft);letter-spacing:.05em}
+.tl-track{position:relative;height:30px;background:var(--paper);border:1px solid var(--rule);border-radius:2px}
+.tl-bar{position:absolute;top:5px;bottom:5px;border-radius:2px;display:flex;align-items:center;padding-left:11px;font-family:"IBM Plex Mono",monospace;font-size:.68rem;color:#fff;white-space:nowrap;overflow:hidden}
+.tl-req{background:var(--oxide);opacity:.42;left:2%;right:2%}
+.tl-con{background:var(--ink-soft);left:26%;right:22%}
+.tl-eff{background:var(--cobalt);left:26%;right:22%}
+.tl-note{font-size:.9rem;color:var(--ink-soft);margin-top:8px;padding-top:20px;border-top:1px solid var(--rule)}
+.tl-note code{background:var(--paper);padding:2px 6px;border-radius:2px;font-size:.83rem;color:var(--ink)}
+
+/* feature grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:1px;margin-top:48px;background:var(--rule);border:1px solid var(--rule)}
+.cell{background:var(--paper);padding:28px 26px}
+.cell-tag{font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;color:var(--cobalt);margin-bottom:14px}
+.cell p{font-size:.93rem;color:var(--ink-soft);margin:10px 0 0}
+
+/* cta */
+.cta{background:var(--ink);color:var(--paper);border-top:none}
+.cta h2{color:var(--paper)}
+.cta p{color:#9AA3A8;max-width:56ch;margin-top:18px}
+.cta .btn-ghost{color:var(--paper);border-color:#39424A}
+.cta .btn-ghost:hover{background:#1E242A;border-color:#5A646C}
+.cta .actions{display:flex;gap:14px;margin-top:32px;flex-wrap:wrap}
+
+footer{padding:36px 0;font-size:.84rem;color:var(--ink-soft);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+footer .mono{font-size:.78rem}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="mark" href="#top"><span></span>Interlock</a>
+    <div class="nav-links">
+      <a href="#cost">Cost</a>
+      <a href="#ingest">Catalog loading</a>
+      <a href="#pricing">Price tiers</a>
+      <a href="#policy">Policy</a>
+      <a class="btn" href="#demo">Book a demo</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero wrap" id="top">
+  <div class="eyebrow">Punchout &amp; catalog for SAP S/4HANA</div>
+  <h1>Your suppliers speak&nbsp;cXML.<br>Your ERP speaks&nbsp;OCI.<br><em>We sit in between.</em></h1>
+  <p class="lede">
+    S/4HANA ships punchout, catalogs, and requisition approval. What it does not ship is a
+    way to reach the suppliers who only publish cXML endpoints. Interlock closes that gap —
+    without licensing a source-to-pay suite to get it.
+  </p>
+  <div class="actions">
+    <a class="btn" href="#demo">Book a demo</a>
+    <a class="btn btn-ghost" href="#ingest">See a catalog load</a>
+  </div>
+
+  <div class="trace">
+    <div class="trace-cap">
+      <span>Live punchout trace</span>
+      <span>OCI 4.0 ⟷ cXML 1.2.014</span>
+    </div>
+
+    <svg viewBox="0 0 1000 220" role="img" aria-label="A purchase requisition punchout: SAP S/4HANA calls Interlock, Interlock calls the supplier over cXML, and the cart returns as OCI NEW_ITEM fields.">
+      <!-- wires -->
+      <path class="wire" d="M175 74 H420"/>
+      <path class="wire" d="M580 74 H825"/>
+      <path class="wire" d="M825 128 H580"/>
+      <path class="wire" d="M420 128 H175"/>
+
+      <path id="w1" class="wire-live hop" d="M175 74 H420"/>
+      <path id="w2" class="wire-live hop" d="M580 74 H825"/>
+      <path id="w3" class="wire-live hop" d="M825 128 H580"/>
+      <path id="w4" class="wire-live hop" d="M420 128 H175"/>
+
+      <!-- nodes -->
+      <rect class="node-box" x="20" y="58" width="155" height="86" rx="3"/>
+      <text class="node-label" x="38" y="90">SAP S/4HANA</text>
+      <text class="node-sub" x="38" y="110">CREATE PURCH REQ</text>
+      <text class="node-sub" x="38" y="126">HOOK_URL issued</text>
+
+      <rect class="node-box self" x="420" y="46" width="160" height="110" rx="3"/>
+      <text class="node-label" x="438" y="80">Interlock</text>
+      <text class="node-sub" x="438" y="100">SESSION STORE</text>
+      <text class="node-sub" x="438" y="116">FIELD MAPPING</text>
+      <text class="node-sub" x="438" y="132">TIER RESOLUTION</text>
+      <text class="node-sub" x="438" y="148">POLICY CHECK</text>
+
+      <rect class="node-box" x="825" y="58" width="155" height="86" rx="3"/>
+      <text class="node-label" x="843" y="90">Supplier</text>
+      <text class="node-sub" x="843" y="110">CXML ENDPOINT</text>
+      <text class="node-sub" x="843" y="126">LIVE CATALOG</text>
+
+      <!-- message labels -->
+      <text id="m1" class="msg" x="200" y="64">1 · OCI call structure + HOOK_URL</text>
+      <text id="m2" class="msg" x="600" y="64">2 · PunchOutSetupRequest</text>
+      <text id="m3" class="msg" x="600" y="146">3 · PunchOutOrderMessage</text>
+      <text id="m4" class="msg" x="200" y="146">4 · NEW_ITEM-* form post → requisition</text>
+
+      <!-- travelling packet -->
+      <circle id="pk" class="packet" r="4.5" cx="175" cy="74" opacity="0"/>
+    </svg>
+
+    <p class="trace-note">
+      Step&nbsp;4 is the part that matters. Price, unit of measure, material group, and vendor
+      number are read from validated rows and written by code — never generated by a model.
+    </p>
+  </div>
+</header>
+
+<section id="cost" class="wrap">
+  <div class="eyebrow">The arithmetic</div>
+  <h2>You are being quoted a suite<br>to solve a catalog problem.</h2>
+  <p class="section-lede">
+    Most mid-market SAP shops need catalogs, punchout, and requisition approval. That is a
+    small fraction of a source-to-pay suite, and it is licensed as if it were all of it.
+  </p>
+
+  <div class="ledger">
+    <div class="ledger-col now">
+      <div class="ledger-tag">What the suite costs</div>
+      <div class="figure">$200K – $2M</div>
+      <div class="figure-sub">PER YEAR, ENTERPRISE DEPLOYMENTS</div>
+      <ul class="ledger-list">
+        <li>Per-module, per-named-user subscription</li>
+        <li>Transaction fees that scale with PO and invoice volume, often 40–60% of the total</li>
+        <li>Supplier network fees, passed back to you through pricing</li>
+        <li>Inflation-indexed escalators on the base</li>
+        <li>Implementation measured in quarters</li>
+      </ul>
+    </div>
+    <div class="ledger-col alt">
+      <div class="ledger-tag">What Interlock costs</div>
+      <div class="figure">$18K – $150K</div>
+      <div class="figure-sub">PER YEAR, BY CONNECTION VOLUME</div>
+      <ul class="ledger-list">
+        <li>Flat platform fee plus a per-connection tier</li>
+        <li>No transaction fees. Volume does not change the bill</li>
+        <li>No supplier network fee. Your suppliers pay nothing</li>
+        <li>Runs against the S/4HANA licence you already own</li>
+        <li>Ten business days to first live punchout</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="ingest" class="wrap">
+  <div class="eyebrow">Catalog loading</div>
+  <h2>A supplier sends 47,000 rows<br>of somebody else&rsquo;s conventions.</h2>
+  <p class="section-lede">
+    Six spellings of &ldquo;each,&rdquo; German column headers, no commodity codes, descriptions
+    written for a webshop. Normally that is a week of somebody&rsquo;s life. Upload it, review
+    what is genuinely ambiguous, publish.
+  </p>
+
+  <div class="diff">
+    <table>
+      <thead>
+        <tr><th>As sent</th><th>As loaded</th><th>What happened</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="was">Art.-Nr. → ACME-4471</td>
+          <td class="now-val">supplier_part_id</td>
+          <td class="flagged">Header mapped, then cached against this supplier for every future load</td>
+        </tr>
+        <tr>
+          <td class="was">Einheit → &ldquo;BX&rdquo;</td>
+          <td class="now-val">BOX</td>
+          <td class="flagged">Resolved against T006</td>
+        </tr>
+        <tr>
+          <td class="was">VPE → (blank)</td>
+          <td class="now-val">price_unit&nbsp;=&nbsp;1</td>
+          <td class="flagged">Defaulted and flagged. Left unflagged this is how a 100× purchase order happens</td>
+        </tr>
+        <tr>
+          <td class="was">Bezeichnung → 56 chars</td>
+          <td class="now-val">40 + LONGTEXT</td>
+          <td class="flagged">Spilled rather than silently truncated by SAP</td>
+        </tr>
+        <tr>
+          <td class="was">Einheit → &ldquo;widget&rdquo;</td>
+          <td class="now-val">unresolved</td>
+          <td class="flagged">Routed to review. Guessing here is worse than asking</td>
+        </tr>
+        <tr>
+          <td class="was">Warengruppe → (blank)</td>
+          <td class="now-val">held for review</td>
+          <td class="flagged">Material group drives GL account determination and is never auto-approved</td>
+        </tr>
+        <tr>
+          <td class="was">Preis → (blank)</td>
+          <td class="now-val">rejected</td>
+          <td class="flagged">Hard validation failure. One bad row does not block the other 46,999</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="grid">
+    <div class="cell">
+      <div class="cell-tag">Item-level approval</div>
+      <h3>Approve rows, not files</h3>
+      <p>Three bad lines never hold up a catalog. Every decision is logged with who, when, and why.</p>
+    </div>
+    <div class="cell">
+      <div class="cell-tag">Versioned</div>
+      <h3>Nothing is edited in place</h3>
+      <p>Each upload supersedes the last. You can always answer what price was in force on a given date.</p>
+    </div>
+    <div class="cell">
+      <div class="cell-tag">It learns</div>
+      <h3>Load two is easier than load one</h3>
+      <p>Every correction becomes a rule scoped to that supplier. The review queue shrinks each cycle.</p>
+    </div>
+    <div class="cell">
+      <div class="cell-tag">Formats</div>
+      <h3>CSV, Excel, CIF, BMEcat</h3>
+      <p>Bring the catalog files you already have, including the ones formatted for a suite you are leaving.</p>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" class="wrap">
+  <div class="eyebrow">Price tiers</div>
+  <h2>Quantity breaks, bound to<br>the contract that grants them.</h2>
+  <p class="section-lede">
+    Suppliers send tier ladders in at least five incompatible shapes. All of them land as the
+    same thing: contiguous, validated, effective-dated, and never valid past the contract.
+  </p>
+
+  <div class="ladder" aria-label="Price ladder for part ACME-4471">
+    <div class="rung">
+      <div class="rung-qty">1 – 9</div>
+      <div class="rung-bar" style="width:100%"></div>
+      <div class="rung-price">$42.00</div>
+    </div>
+    <div class="rung">
+      <div class="rung-qty">10 – 49</div>
+      <div class="rung-bar" style="width:91.6%"></div>
+      <div class="rung-price">$38.50</div>
+    </div>
+    <div class="rung">
+      <div class="rung-qty">50 +</div>
+      <div class="rung-bar" style="width:83.3%"></div>
+      <div class="rung-price">$35.00</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="cell">
+      <div class="cell-tag">Validated</div>
+      <h3>An upward ladder is refused</h3>
+      <p>Prices that rise with quantity are a parsing error in almost every real case, so the file is rejected rather than stored.</p>
+    </div>
+    <div class="cell">
+      <div class="cell-tag">Effective dated</div>
+      <h3>Send October pricing in September</h3>
+      <p>A new ladder closes the old one instead of overwriting it. Historical requisitions stay auditable.</p>
+    </div>
+    <div class="cell">
+      <div class="cell-tag">Shown to the buyer</div>
+      <h3>Breaks surface before checkout</h3>
+      <p>Once a cart returns to SAP the price does not re-resolve, so the next break is shown while there is still time to use it.</p>
+    </div>
+  </div>
+</section>
+
+<section id="policy" class="wrap">
+  <div class="eyebrow">Procurement policy</div>
+  <h2>A policy cannot outlive<br>the contract it rests on.</h2>
+  <p class="section-lede">
+    Write the rules, bind them to an agreement, activate. The effective window is clamped to
+    the contract — so a policy quietly stops applying the day the agreement ends, rather than
+    quietly continuing to.
+  </p>
+
+  <div class="timeline">
+    <div class="tl-row">
+      <div class="tl-label">REQUESTED</div>
+      <div class="tl-track"><div class="tl-bar tl-req">2026-01-01 → 2027-12-31</div></div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-label">CONTRACT ACME-FY26</div>
+      <div class="tl-track"><div class="tl-bar tl-con">2026-04-01 → 2027-03-31</div></div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-label">EFFECTIVE</div>
+      <div class="tl-track"><div class="tl-bar tl-eff">2026-04-01 → 2027-03-31</div></div>
+    </div>
+    <p class="tl-note">
+      <code>effective_from = max(requested_from, contract.valid_from)</code> ·
+      <code>effective_to = min(requested_to, contract.valid_to)</code><br>
+      Extending the contract does not extend the policy. That needs a new version, so somebody
+      looks at it again.
+    </p>
+  </div>
+
+  <div class="grid">
+    <div class="cell">
+      <div class="cell-tag">Deterministic</div>
+      <h3>No model decides anything</h3>
+      <p>Rules evaluate as code: testable, reproducible, and explainable to an auditor eighteen months later.</p>
+    </div>
+    <div class="cell">
+      <div class="cell-tag">Traceable</div>
+      <h3>Every rule cites its clause</h3>
+      <p>Drafted rules carry the section and sentence they came from, so a procurement lead can verify one in thirty seconds.</p>
+    </div>
+    <div class="cell">
+      <div class="cell-tag">Four outcomes</div>
+      <h3>Allow, warn, route, block</h3>
+      <p>The strictest outcome wins, but every rule that fired is recorded. Reviewers need the picture, not the verdict.</p>
+    </div>
+    <div class="cell">
+      <div class="cell-tag">Logged</div>
+      <h3>Answers hold up later</h3>
+      <p>Each evaluation is stored with the policy version and field values that produced it. Immutable.</p>
+    </div>
+  </div>
+</section>
+
+<section class="cta" id="demo">
+  <div class="wrap">
+    <div class="eyebrow" style="color:#7A848B">Get started</div>
+    <h2>Bring us your Ariba quote.</h2>
+    <p>
+      Thirty minutes. We will walk a real catalog file through the loader, run a punchout
+      against your S/4HANA sandbox, and tell you honestly if this is a worse fit than what
+      you are already being sold.
+    </p>
+    <div class="actions">
+      <a class="btn" href="mailto:hello@example.com?subject=Interlock%20demo">Book a demo</a>
+      <a class="btn btn-ghost" href="mailto:hello@example.com?subject=Technical%20questions">Talk to an engineer</a>
+    </div>
+  </div>
+</section>
+
+<footer class="wrap">
+  <div>Interlock — punchout catalogs for SAP S/4HANA</div>
+  <div class="mono">OCI 4.0 · OCI 5.0 · cXML 1.2.x · CIF 3.0 · BMEcat</div>
+</footer>
+
+<script>
+(function(){
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var hops = [
+    {wire:'w1', msg:'m1', from:[175,74],  to:[420,74]},
+    {wire:'w2', msg:'m2', from:[580,74],  to:[825,74]},
+    {wire:'w3', msg:'m3', from:[825,128], to:[580,128]},
+    {wire:'w4', msg:'m4', from:[420,128], to:[175,128]}
+  ];
+  var pk = document.getElementById('pk');
+  if(!pk) return;
+
+  if(reduced){
+    hops.forEach(function(h){
+      document.getElementById(h.wire).classList.add('on');
+      document.getElementById(h.msg).classList.add('hot');
+    });
+    return;
+  }
+
+  var i = 0;
+  function clearAll(){
+    hops.forEach(function(h){
+      document.getElementById(h.wire).classList.remove('on');
+      document.getElementById(h.msg).classList.remove('hot');
+    });
+  }
+  function step(){
+    var h = hops[i];
+    if(i === 0) clearAll();
+    document.getElementById(h.wire).classList.add('on');
+    document.getElementById(h.msg).classList.add('hot');
+
+    var start = null, dur = 780;
+    pk.setAttribute('opacity','1');
+    function frame(ts){
+      if(!start) start = ts;
+      var t = Math.min((ts - start) / dur, 1);
+      var e = t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2;
+      pk.setAttribute('cx', h.from[0] + (h.to[0]-h.from[0])*e);
+      pk.setAttribute('cy', h.from[1] + (h.to[1]-h.from[1])*e);
+      if(t < 1){ requestAnimationFrame(frame); }
+      else {
+        pk.setAttribute('opacity','0');
+        i = (i + 1) % hops.length;
+        setTimeout(step, i === 0 ? 1500 : 420);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+  setTimeout(step, 700);
+})();
+</script>
+</body>
+</html>

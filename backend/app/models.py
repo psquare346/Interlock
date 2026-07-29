@@ -1,0 +1,404 @@
+"""All persistent models: tenants, suppliers, contracts, catalog, price tiers,
+policy, and punchout sessions.
+
+Conventions:
+- String UUID primary keys (hex, no dashes) except Tenant, which uses the
+  caller-chosen slug so URLs and payloads stay readable.
+- Every row carries tenant_id. Local mode trusts the request parameter;
+  production derives it from the authenticated session (see README).
+- Enums are stored by value (lowercase strings) so raw SQL stays legible.
+"""
+
+from __future__ import annotations
+
+import enum
+import uuid
+from datetime import date, datetime, timezone
+
+from sqlalchemy import (
+    Boolean, Date, DateTime, Enum as SAEnum, Float, ForeignKey, Integer,
+    JSON, Numeric, String, Text, UniqueConstraint,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+def _uuid() -> str:
+    return uuid.uuid4().hex
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _enum(e):
+    return SAEnum(e, values_callable=lambda x: [m.value for m in x], native_enum=False)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+# --------------------------------------------------------------------------
+# Tenancy and suppliers
+# --------------------------------------------------------------------------
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class SupplierProtocol(str, enum.Enum):
+    CXML = "cxml"
+    OCI = "oci"
+    HOSTED = "hosted"
+
+
+class Supplier(Base):
+    __tablename__ = "suppliers"
+    __table_args__ = (UniqueConstraint("tenant_id", "code"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    code: Mapped[str] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(200))
+    sap_vendor_no: Mapped[str | None] = mapped_column(String(20))
+    protocol: Mapped[SupplierProtocol] = mapped_column(
+        _enum(SupplierProtocol), default=SupplierProtocol.HOSTED
+    )
+
+    # cXML punchout credentials. The shared secret is stored encrypted only.
+    punchout_url: Mapped[str | None] = mapped_column(String(500))
+    from_domain: Mapped[str | None] = mapped_column(String(60))
+    from_identity: Mapped[str | None] = mapped_column(String(120))
+    to_domain: Mapped[str | None] = mapped_column(String(60))
+    to_identity: Mapped[str | None] = mapped_column(String(120))
+    shared_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    deployment_mode: Mapped[str] = mapped_column(String(20), default="test")
+
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # The confirmed column mapping for this supplier's file style.
+    # Written once after human confirmation; load #2 onward is zero-touch.
+    confirmed_mapping: Mapped[dict | None] = mapped_column(JSON)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class Contract(Base):
+    __tablename__ = "contracts"
+    __table_args__ = (UniqueConstraint("tenant_id", "contract_no"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    supplier_id: Mapped[str | None] = mapped_column(ForeignKey("suppliers.id"))
+    contract_no: Mapped[str] = mapped_column(String(60))
+    sap_agreement_no: Mapped[str | None] = mapped_column(String(20))
+    valid_from: Mapped[date] = mapped_column(Date)
+    valid_to: Mapped[date] = mapped_column(Date)
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    # Higher wins when two contracts both cover an item.
+    precedence: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    def is_valid_on(self, on: date) -> bool:
+        return self.active and self.valid_from <= on <= self.valid_to
+
+
+# --------------------------------------------------------------------------
+# Catalog
+# --------------------------------------------------------------------------
+
+class VersionStatus(str, enum.Enum):
+    LOADED = "loaded"          # ingested, in review
+    PUBLISHED = "published"    # live for punchout
+    SUPERSEDED = "superseded"  # replaced by a newer published version
+
+
+class ItemState(str, enum.Enum):
+    AUTO_APPROVED = "auto_approved"  # confidence >= 0.95, publishes on release
+    NEEDS_REVIEW = "needs_review"    # 0.70-0.95, one-click accept in the queue
+    MANUAL = "manual"                # < 0.70 or hard-fail, needs a human
+    APPROVED = "approved"            # human said yes
+    REJECTED = "rejected"            # human said no
+
+
+class CatalogVersion(Base):
+    __tablename__ = "catalog_versions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    supplier_id: Mapped[str] = mapped_column(ForeignKey("suppliers.id"))
+    version_no: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[VersionStatus] = mapped_column(
+        _enum(VersionStatus), default=VersionStatus.LOADED
+    )
+    source_filename: Mapped[str | None] = mapped_column(String(300))
+    # What the mapper decided for this load, kept for audit even after the
+    # supplier-level confirmed_mapping is written.
+    mapping_used: Mapped[dict | None] = mapped_column(JSON)
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime)
+    published_by: Mapped[str | None] = mapped_column(String(120))
+
+    items: Mapped[list["CatalogItem"]] = relationship(back_populates="version")
+
+
+class CatalogItem(Base):
+    __tablename__ = "catalog_items"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    version_id: Mapped[str] = mapped_column(ForeignKey("catalog_versions.id"))
+    supplier_id: Mapped[str] = mapped_column(ForeignKey("suppliers.id"))
+
+    supplier_part_id: Mapped[str | None] = mapped_column(String(120))
+    description: Mapped[str | None] = mapped_column(String(40))   # SAP TXZ01 limit
+    long_description: Mapped[str | None] = mapped_column(Text)
+    manufacturer: Mapped[str | None] = mapped_column(String(120))
+    manufacturer_part_id: Mapped[str | None] = mapped_column(String(120))
+
+    uom_raw: Mapped[str | None] = mapped_column(String(30))
+    uom_sap: Mapped[str | None] = mapped_column(String(10))
+    unspsc: Mapped[str | None] = mapped_column(String(12))
+    material_group: Mapped[str | None] = mapped_column(String(20))
+
+    unit_price: Mapped[float | None] = mapped_column(Numeric(15, 4))
+    price_unit: Mapped[int] = mapped_column(Integer, default=1)
+    currency: Mapped[str | None] = mapped_column(String(3))
+    lead_time_days: Mapped[int | None] = mapped_column(Integer)
+
+    state: Mapped[ItemState] = mapped_column(_enum(ItemState), default=ItemState.MANUAL)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    review_reasons: Mapped[list | None] = mapped_column(JSON)   # why it was queued
+    suggestions: Mapped[list | None] = mapped_column(JSON)      # top candidates
+    price_flags: Mapped[list | None] = mapped_column(JSON)      # surveillance output
+    raw_row: Mapped[dict | None] = mapped_column(JSON)          # source row, for audit
+
+    decided_by: Mapped[str | None] = mapped_column(String(120))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    version: Mapped[CatalogVersion] = relationship(back_populates="items")
+
+    # services/pricing.py resolves against `list_price`; the catalog stores the
+    # file's unit price under that meaning.
+    @property
+    def list_price(self):
+        return self.unit_price
+
+
+# --------------------------------------------------------------------------
+# Price tiers
+# --------------------------------------------------------------------------
+
+class PriceTier(Base):
+    __tablename__ = "price_tiers"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    item_id: Mapped[str] = mapped_column(ForeignKey("catalog_items.id"))
+    contract_id: Mapped[str | None] = mapped_column(ForeignKey("contracts.id"))
+
+    min_qty: Mapped[int] = mapped_column(Integer)
+    max_qty: Mapped[int | None] = mapped_column(Integer)  # None = open-ended top tier
+    unit_price: Mapped[float] = mapped_column(Numeric(15, 4))
+    price_unit: Mapped[int] = mapped_column(Integer, default=1)
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    valid_from: Mapped[date | None] = mapped_column(Date)
+    valid_to: Mapped[date | None] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    def covers_qty(self, qty: int) -> bool:
+        return qty >= self.min_qty and (self.max_qty is None or qty <= self.max_qty)
+
+    def valid_on(self, on: date) -> bool:
+        if self.valid_from and on < self.valid_from:
+            return False
+        if self.valid_to and on > self.valid_to:
+            return False
+        return True
+
+
+# --------------------------------------------------------------------------
+# Policy
+# --------------------------------------------------------------------------
+
+class PolicyStatus(str, enum.Enum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"
+    EXPIRED = "expired"
+
+
+class PolicyAction(str, enum.Enum):
+    ALLOW = "allow"
+    WARN = "warn"
+    ROUTE_APPROVAL = "route_approval"
+    BLOCK = "block"
+
+
+# The most severe fired action decides the line's outcome.
+ACTION_SEVERITY: dict[PolicyAction, int] = {
+    PolicyAction.ALLOW: 0,
+    PolicyAction.WARN: 1,
+    PolicyAction.ROUTE_APPROVAL: 2,
+    PolicyAction.BLOCK: 3,
+}
+
+
+class Policy(Base):
+    __tablename__ = "policies"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    code: Mapped[str] = mapped_column(String(60))
+    name: Mapped[str] = mapped_column(String(200))
+    version_no: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[PolicyStatus] = mapped_column(
+        _enum(PolicyStatus), default=PolicyStatus.DRAFT
+    )
+    contract_id: Mapped[str | None] = mapped_column(ForeignKey("contracts.id"))
+
+    # What the author asked for vs. what activation granted after the clamp.
+    requested_from: Mapped[date] = mapped_column(Date)
+    requested_to: Mapped[date] = mapped_column(Date)
+    effective_from: Mapped[date | None] = mapped_column(Date)
+    effective_to: Mapped[date | None] = mapped_column(Date)
+    clamped: Mapped[bool] = mapped_column(Boolean, default=False)
+    clamp_note: Mapped[str | None] = mapped_column(Text)
+
+    source_document: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    activated_by: Mapped[str | None] = mapped_column(String(120))
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    rules: Mapped[list["PolicyRule"]] = relationship(back_populates="policy")
+
+    def is_effective_on(self, on: date) -> bool:
+        return (
+            self.effective_from is not None
+            and self.effective_to is not None
+            and self.effective_from <= on <= self.effective_to
+        )
+
+
+class PolicyRule(Base):
+    __tablename__ = "policy_rules"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    policy_id: Mapped[str] = mapped_column(ForeignKey("policies.id"))
+    code: Mapped[str] = mapped_column(String(60))
+    description: Mapped[str] = mapped_column(Text, default="")
+    scope: Mapped[dict] = mapped_column(JSON, default=dict)
+    condition: Mapped[dict] = mapped_column(JSON, default=dict)
+    action: Mapped[PolicyAction] = mapped_column(
+        _enum(PolicyAction), default=PolicyAction.WARN
+    )
+    route_to: Mapped[str | None] = mapped_column(String(120))
+    severity: Mapped[str] = mapped_column(String(20), default="medium")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # When a model drafted this rule from a policy document, keep the receipts.
+    source_clause: Mapped[str | None] = mapped_column(String(120))
+    source_quote: Mapped[str | None] = mapped_column(Text)
+    draft_confidence: Mapped[float | None] = mapped_column(Float)
+
+    policy: Mapped[Policy] = relationship(back_populates="rules")
+
+
+class PolicyEvaluation(Base):
+    __tablename__ = "policy_evaluations"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    cart_ref: Mapped[str | None] = mapped_column(String(120))
+    line_ref: Mapped[str | None] = mapped_column(String(120))
+    policy_id: Mapped[str | None] = mapped_column(String(32))
+    policy_version_no: Mapped[int | None] = mapped_column(Integer)
+    fired_rules: Mapped[list | None] = mapped_column(JSON)
+    evaluated_fields: Mapped[dict | None] = mapped_column(JSON)
+    outcome: Mapped[str] = mapped_column(String(30))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+# --------------------------------------------------------------------------
+# Users and privileges
+# --------------------------------------------------------------------------
+
+class UserRole(str, enum.Enum):
+    ADMIN = "admin"    # implies every privilege, can manage users
+    MEMBER = "member"  # has exactly the privileges an admin granted
+
+
+# The privilege vocabulary. An admin assigns any subset to a member.
+PRIVILEGES = [
+    "manage_users",        # create/edit users and their privileges
+    "manage_master_data",  # suppliers and contracts
+    "catalog_upload",      # load supplier files
+    "catalog_review",      # approve / reject / edit queued rows
+    "catalog_publish",     # release a version to the storefront
+    "pricing_manage",      # upload price tiers
+    "policy_manage",       # upload and activate policies
+]
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("tenant_id", "email"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    email: Mapped[str] = mapped_column(String(200))
+    display_name: Mapped[str] = mapped_column(String(120))
+    # PBKDF2-HMAC-SHA256, 600k iterations, per-user random salt.
+    password_salt: Mapped[str] = mapped_column(String(32))
+    password_hash: Mapped[str] = mapped_column(String(64))
+    role: Mapped[UserRole] = mapped_column(_enum(UserRole), default=UserRole.MEMBER)
+    privileges: Mapped[list] = mapped_column(JSON, default=list)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Brute-force protection: lock the account after repeated failures.
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    def has_privilege(self, privilege: str) -> bool:
+        return self.role is UserRole.ADMIN or privilege in (self.privileges or [])
+
+
+class AuthToken(Base):
+    __tablename__ = "auth_tokens"
+
+    # Only the SHA-256 of the token is stored — a leaked database cannot be
+    # replayed as live sessions. The client holds the only copy of the token.
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+# --------------------------------------------------------------------------
+# Punchout sessions
+# --------------------------------------------------------------------------
+
+class PunchoutSession(Base):
+    __tablename__ = "punchout_sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    protocol: Mapped[str] = mapped_column(String(10), default="oci")  # oci | cxml
+    oci_version: Mapped[str | None] = mapped_column(String(5))
+    # OCI: the SAP HOOK_URL the cart posts back to. Stored encrypted at rest.
+    hook_url_encrypted: Mapped[str | None] = mapped_column(Text)
+    # cXML: BuyerCookie round-trips through the supplier session.
+    buyer_cookie: Mapped[str | None] = mapped_column(String(120))
+    sap_user: Mapped[str | None] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open | returned | expired
+    cart: Mapped[list | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime)
