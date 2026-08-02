@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -16,10 +16,11 @@ TEMPLATES = Path(__file__).resolve().parent.parent.parent / "samples" / "templat
 
 from ..db import get_db
 from ..models import (
-    CatalogItem, CatalogVersion, ItemState, Supplier, User, VersionStatus,
+    CatalogItem, CatalogVersion, ItemState, PunchoutSession, Supplier, User,
+    VersionStatus,
 )
 from ..services import ingestion
-from ..services.auth import get_current_user, require
+from ..services.auth import get_current_user, require, staff_user_from_header
 
 router = APIRouter()
 
@@ -298,14 +299,39 @@ def publish_version(
 
 @router.get("/items")
 def search_items(
-    tenant_id: str = Query("demo"),
+    session: str | None = Query(None, description="Open punchout session id"),
     q: str | None = Query(None, description="Substring match on part id / description"),
+    tenant_id: str | None = Query(None, deprecated=True,
+                                  description="Ignored — tenant comes from the "
+                                  "session or the login, never the caller"),
+    authorization: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    """Published items only — what the punchout storefront sees."""
+    """Published items only — what the punchout storefront sees.
+
+    Callers prove which tenant they are instead of naming one: a shopper
+    carries an open punchout session id (minted by the credentialed
+    /oci/start), staff carry their bearer token. The tenant_id parameter is
+    accepted for backward compatibility but never trusted."""
+    from .punchout import session_is_live  # local import avoids an import cycle
+
+    resolved_tenant: str | None = None
+    if session:
+        ps = db.get(PunchoutSession, session)
+        if session_is_live(ps):
+            resolved_tenant = ps.tenant_id
+    if resolved_tenant is None and authorization:
+        staff = staff_user_from_header(db, authorization)
+        if staff is not None:
+            resolved_tenant = staff.tenant_id
+    if resolved_tenant is None:
+        raise HTTPException(
+            401, "Catalog access needs an open punchout session or a staff login"
+        )
+
     versions = db.scalars(
         select(CatalogVersion).where(
-            CatalogVersion.tenant_id == tenant_id,
+            CatalogVersion.tenant_id == resolved_tenant,
             CatalogVersion.status == VersionStatus.PUBLISHED,
         )
     ).all()

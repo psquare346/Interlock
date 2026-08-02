@@ -31,7 +31,8 @@ def my_tenant(user: User = Depends(get_current_user), db: Session = Depends(get_
     if tenant is None:
         return []
     return [{"id": tenant.id, "name": tenant.name,
-             "po_key_configured": tenant.po_key_hash is not None}]
+             "po_key_configured": tenant.po_key_hash is not None,
+             "punchout_secret_configured": tenant.punchout_secret_hash is not None}]
 
 
 @router.post("/tenants/po-key")
@@ -52,6 +53,32 @@ def rotate_po_key(
         "po_key": key,
         "endpoint": "/api/v1/po/receive?tenant_id=" + tenant.id,
         "note": "Store this now — it is not retrievable later, only rotatable.",
+    }
+
+
+@router.post("/tenants/punchout-secret")
+def rotate_punchout_secret(
+    user: User = Depends(require("manage_master_data")),
+    db: Session = Depends(get_db),
+):
+    """Generate (or rotate) the punchout front-door secret SAP sends as the
+    PASSWORD parameter on /oci/start. Same discipline as the PO key: the
+    plaintext is returned exactly once, only its hash is stored. Until a
+    secret exists, punchout for this tenant is closed."""
+    import hashlib
+    import secrets as _secrets
+
+    secret = _secrets.token_urlsafe(24)
+    tenant = db.get(Tenant, user.tenant_id)
+    tenant.punchout_secret_hash = hashlib.sha256(secret.encode()).hexdigest()
+    db.commit()
+    return {
+        "punchout_secret": secret,
+        "endpoint": f"/api/v1/punchout/oci/start?tenant_id={tenant.id}",
+        "sap_note": "Basis: add PASSWORD as a fixed parameter with this value "
+        "in the SPRO web-service call structure. Requisitioners never see it.",
+        "note": "Store this now — it is not retrievable later, only rotatable. "
+        "Rotating invalidates the previous secret immediately.",
     }
 
 

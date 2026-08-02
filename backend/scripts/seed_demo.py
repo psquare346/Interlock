@@ -9,8 +9,11 @@ audit. Safe to point at localhost or a deployment.
     python scripts/seed_demo.py --base http://localhost:8080 \
         --tenant demo --email you@example.com --password 'your-password'
 
-The account must already exist (register it in the UI first) and be the
-tenant's admin. Re-running is safe: existing objects are reused.
+The account must already exist and be the tenant's admin. Registration is
+invite-only: provision the tenant first (scripts/provision_tenant.py — it
+mints the tenant, punchout secret, PO key, and the admin's invite link),
+redeem the invite in the UI, then run this seeder. Re-running is safe:
+existing objects are reused.
 """
 
 from __future__ import annotations

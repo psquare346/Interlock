@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     SAP_PLANT: str = ""
     SAP_CURRENCY: str = "USD"
 
+    # --- Operator provisioning ---
+    # Gates /api/ops/* (create tenants, issue credentials). Blank = disabled.
+    OPERATOR_KEY: str = ""
+
     # --- Secrets (START-HERE §6) ---
     SECRET_BACKEND: str = "env"
     ENCRYPTION_KEY: str = ""

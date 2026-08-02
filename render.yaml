@@ -21,6 +21,9 @@ services:
           property: connectionString
       - key: ENCRYPTION_KEY
         generateValue: true   # secrets.py auto-upgrades to Fernet with this set
+      - key: OPERATOR_KEY
+        generateValue: true   # gates /api/ops tenant provisioning; read it in
+                              # the Render dashboard to run provision_tenant.py
       - key: STORAGE_DIR
         value: /app/data
 
