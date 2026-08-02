@@ -6,22 +6,27 @@ order — Wire 1 needs only config a functional consultant can do in an
 afternoon; Wire 2 touches output management.
 
 **Placeholders:** `<BASE>` = your deployment, `<TENANT>` = your tenant id,
-`<KEY>` = your PO key. **Substitute the real value and drop the angle
-brackets** — never type `<` or `>` into SAP. For the current deployment:
+`<KEY>` = your PO key, `<SECRET>` = your punchout secret. **Substitute the
+real value and drop the angle brackets** — never type `<` or `>` into SAP.
+For the current deployment:
 
-| Placeholder | Type this instead                     |
-|-------------|---------------------------------------|
-| `<BASE>`    | `https://interlock-s20b.onrender.com` |
-| `<TENANT>`  | `demo`                                |
-| `<KEY>`     | the key from the `/orders` page       |
+| Placeholder | Type this instead                                        |
+|-------------|----------------------------------------------------------|
+| `<BASE>`    | `https://interlock-s20b.onrender.com`                    |
+| `<TENANT>`  | `demo`                                                   |
+| `<KEY>`     | the key from the `/orders` page                          |
+| `<SECRET>`  | the punchout secret from `/admin` → Setup (shown once)   |
 
 ---
 
 ## Wire 1 — OCI punchout (catalog inside SAP)
 
 **Interlock side (do first):** supplier + contract created, catalog uploaded,
-reviewed, **published**, tiers loaded. Test in a plain browser tab that
-`<BASE>/api/catalog/items?tenant_id=<TENANT>` returns items.
+reviewed, **published**, tiers loaded — and a **punchout secret generated**
+(`/admin` → Setup → "Generate / rotate punchout secret"; it is shown once).
+The storefront is credentialed: `/oci/start` rejects any call that does not
+carry the tenant's secret, so there is no longer an open items URL to test in
+a bare browser tab — use the sanity-test URL below instead.
 
 **SAP side — define the web service:**
 
@@ -29,18 +34,21 @@ IMG path: `SPRO → Materials Management → Purchasing → Environment →
 Web Services: ID and Description` (the OCI catalog table). Create an entry:
 
 - Web service ID: `INTERLOCK`, description: `Interlock punchout catalog`
-- **Call structure** — exactly three rows, typed literally as shown
-  (row 10 has no parameter name; row 30 has no value — SAP fills it):
+- **Call structure** — exactly four rows, typed literally as shown
+  (row 10 has no parameter name; row 40 has no value — SAP fills it):
 
 | Seq | Parameter name | Parameter value                                                     | Type        |
 |-----|----------------|---------------------------------------------------------------------|-------------|
 | 10  | *(leave empty)* | `https://interlock-s20b.onrender.com/api/v1/punchout/oci/start`     | URL         |
 | 20  | `tenant_id`    | `demo`                                                              | Fixed value |
-| 30  | `HOOK_URL`     | *(leave empty)*                                                     | Return URL  |
+| 30  | `PASSWORD`     | the punchout secret (no quotes)                                     | Fixed value |
+| 40  | `HOOK_URL`     | *(leave empty)*                                                     | Return URL  |
 
-Row 30's name must be spelled `HOOK_URL` in capitals — that is the OCI
-standard name SAP looks for. No trailing slash on the URL, no quotes
-anywhere, and no `<` `>` characters.
+Row 40's name must be spelled `HOOK_URL` in capitals — that is the OCI
+standard name SAP looks for. Row 30 (`PASSWORD`, also capitals) is the
+tenant's front-door credential: requisitioners never see it, and calls
+without it get `401`. No trailing slash on the URL, no quotes anywhere, and
+no `<` `>` characters.
 
 **The switch that actually shows the button: set the Default Indicator on
 the web service entry.** The button in `ME51N`/`ME21N` reads customizing
@@ -69,29 +77,34 @@ trusting a path here. Ordered by how often they bite.
    test in Fiori/a real browser or ask and a legacy-compatible page can be
    built. **This is the most likely reason a correctly-configured punchout
    shows a blank or broken page.**
-2. **Unit of measure must exist in the target system.** We send
+2. **The `PASSWORD` row in the call structure.** A blank page that is really
+   a `401` usually means the punchout secret row is missing, misspelled
+   (`PASSWORD` in capitals), carries quotes, or was rotated on the Interlock
+   side after SPRO was configured. Re-run the sanity-test URL below with the
+   current secret to split "SAP config wrong" from "secret wrong".
+3. **Unit of measure must exist in the target system.** We send
    `NEW_ITEM-UNIT`. `EA` is universally present; `KAR`, `PAK`, `CAR` and
    friends are not, and a language-mismatched code (`EA` vs `ST`) fails the
    same way. The seeder ships EA-only for exactly this reason.
-3. **Vendor number.** `NEW_ITEM-VENDOR` must be a vendor that exists and is
+4. **Vendor number.** `NEW_ITEM-VENDOR` must be a vendor that exists and is
    extended to the purchasing org, or blank. The seeder leaves it blank;
    pass `--sap-vendor-no` only with a real test vendor.
-4. **Material group.** `NEW_ITEM-MATGROUP` is only sent when the catalog row
+5. **Material group.** `NEW_ITEM-MATGROUP` is only sent when the catalog row
    has one, and it must exist in the target system. The synthetic catalog
    leaves it empty deliberately.
-5. **Currency** must be valid in the system and consistent with the contract.
-6. **Account assignment.** Punchout lines arrive as free-text (material-less)
+6. **Currency** must be valid in the system and consistent with the contract.
+7. **Account assignment.** Punchout lines arrive as free-text (material-less)
    requisition items, so the requester still supplies cost center / G/L —
    punchout does not and cannot fill those. Make sure a test user has
    defaults (purchasing org, plant, document type) that let a PR save.
-7. **Network path from the *user's* workstation.** The browser — not the SAP
+8. **Network path from the *user's* workstation.** The browser — not the SAP
    server — calls the storefront, so the corporate proxy must allow the host.
    A brand-new domain is sometimes uncategorized and blocked by web filtering.
    The same browser must also be able to POST back to SAP's `HOOK_URL`, which
    is an internal URL: both paths have to work from that one machine.
-8. **Popup/window behavior.** Punchout typically opens a new window; a popup
+9. **Popup/window behavior.** Punchout typically opens a new window; a popup
    blocker or a locked-down GUI theme can swallow it.
-9. **Authorization to use catalogs.** If the Catalogs entry point does not
+10. **Authorization to use catalogs.** If the Catalogs entry point does not
    appear at all for a test user despite the web service existing, this is
    usually authorization or a missing user default rather than the OCI config.
 
@@ -108,16 +121,18 @@ trusting a path here. Ordered by how often they bite.
 the SAP server, so no STRUST work is needed for Wire 1. Render's certificate
 is from a public CA that browsers already trust.
 
-**Sanity test without SAP** — paste this in a browser (one line, real values,
-no placeholders):
+**Sanity test without SAP** — paste this in a browser (one line, real values
+substituted for `<SECRET>`, no angle brackets):
 
 ```
-https://interlock-s20b.onrender.com/api/punchout/oci/start?tenant_id=demo&HOOK_URL=https://interlock-s20b.onrender.com/api/punchout/oci/mock-hook
+https://interlock-s20b.onrender.com/api/punchout/oci/start?tenant_id=demo&PASSWORD=<SECRET>&HOOK_URL=https://interlock-s20b.onrender.com/api/punchout/oci/mock-requisition
 ```
 
-You should land on the storefront; Transfer posts the cart to the mock hook,
-which echoes the exact OCI fields SAP would receive. If that works, the SAP
-config above is just pointing at the same URL.
+You should land on the storefront; Transfer posts the cart to the simulated
+SAP receiver, which renders the exact OCI fields SAP would receive as
+requisition lines. If that works, the SAP config above is just pointing at
+the same URL. A `401` here means the secret is wrong or was never generated;
+a fresh one comes from `/admin` → Setup (rotating invalidates the old one).
 
 ---
 

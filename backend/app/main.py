@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from .config import get_settings
 from .db import SessionLocal, init_db
 from .api import (
-    admin, audit, auth, catalog, jobs, orders, po, policy, pricing, punchout, vendor,
+    admin, audit, auth, catalog, jobs, orders, ops, po, policy, pricing, punchout, vendor,
 )
 from .services import audit as _audit_handlers  # noqa: F401 — registers job handlers
 from .services.jobs import Worker
@@ -49,6 +49,8 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+# Operator provisioning: disabled unless OPERATOR_KEY is set (see api/ops.py).
+app.include_router(ops.router, prefix="/api/ops", tags=["ops"])
 app.include_router(admin.router, prefix="/api", tags=["admin"])
 app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
 app.include_router(pricing.router, prefix="/api/pricing", tags=["pricing"])

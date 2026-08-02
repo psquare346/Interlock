@@ -91,7 +91,8 @@ tr:hover td{background:#fff}
 <script>
 const params = new URLSearchParams(location.search);
 const SESSION = params.get("session");
-const TENANT = params.get("tenant_id") || "demo";
+// No tenant parameter: the session id (minted by the credentialed /oci/start)
+// is the shopper's proof of which catalog they may see.
 let CART = [];
 let timer = null;
 
@@ -126,7 +127,7 @@ function debounceSearch(){ clearTimeout(timer); timer = setTimeout(search, 250);
 
 async function search(){
   const q = document.getElementById("q").value.trim();
-  const items = await jget(`/api/catalog/items?tenant_id=${encodeURIComponent(TENANT)}` + (q?`&q=${encodeURIComponent(q)}`:""));
+  const items = await jget(`/api/catalog/items?session=${encodeURIComponent(SESSION)}` + (q?`&q=${encodeURIComponent(q)}`:""));
   document.getElementById("items").innerHTML = items.map(i=>`<tr>
     <td class="mono">${esc(i.supplier_part_id)}</td>
     <td>${esc(i.description)}${i.lead_time_days!=null?`<div class="hint">lead time ${i.lead_time_days}d</div>`:""}</td>

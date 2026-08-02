@@ -114,15 +114,21 @@ tr:hover td{background:#fff}
 <div class="overlay" id="authOverlay">
   <div class="authcard">
     <h2>Interlock</h2>
-    <div class="sub">Sign in to the workflow console. The first account registered in a tenant becomes its admin.</div>
+    <div class="sub">Sign in to the workflow console. Accounts are created by invitation — ask your admin (or Interlock) for an invite link.</div>
     <div class="authtabs">
       <button id="tabLogin" class="on" onclick="authTab('login')">Log in</button>
-      <button id="tabReg" onclick="authTab('register')">Create account</button>
+      <button id="tabReg" onclick="authTab('register')">Redeem invite</button>
     </div>
-    <label>tenant <span style="text-transform:none;letter-spacing:0">(company id: lowercase letters, numbers, dashes)</span></label>
-    <input id="aTenant" value="demo" placeholder="e.g. pravin-co">
-    <label>email</label><input id="aEmail" type="email" placeholder="you@company.com">
-    <div id="regOnly" style="display:none"><label>display name</label><input id="aName" placeholder="Your name"></div>
+    <div id="loginOnly">
+      <label>tenant <span style="text-transform:none;letter-spacing:0">(company id: lowercase letters, numbers, dashes)</span></label>
+      <input id="aTenant" value="demo" placeholder="e.g. pravin-co">
+      <label>email</label><input id="aEmail" type="email" placeholder="you@company.com">
+    </div>
+    <div id="regOnly" style="display:none">
+      <label>invite token</label><input id="aInvite" placeholder="paste your invite token" oninput="previewInvite()">
+      <div class="reasons" id="invitePreview" style="margin-top:6px"></div>
+      <label>display name</label><input id="aName" placeholder="Your name">
+    </div>
     <label>password <span style="text-transform:none;letter-spacing:0">(min 8 chars)</span></label><input id="aPass" type="password">
     <button class="btn" style="width:100%" id="authGo" onclick="authSubmit()">Log in</button>
     <div class="autherr" id="authErr"></div>
@@ -138,7 +144,9 @@ tr:hover td{background:#fff}
     <p class="explain">Everything hangs off a <b>tenant</b> (the buying company). <b>Suppliers</b> belong to a tenant; <b>contracts</b> bind a supplier with a validity window and currency — and later, policies and price tiers are clamped to that window.</p>
     <div class="grid">
       <div class="card"><h3>Your tenant</h3><div id="tenantList"></div>
-        <p class="reasons" style="margin-top:12px">Tenants are created by registration: the first account registered under a new tenant id bootstraps it and becomes its admin.</p></div>
+        <p class="reasons" style="margin-top:12px">Tenants are provisioned by the platform operator (with your punchout secret, PO key, and first admin invite issued in the same step). Staff accounts are invite-only — see the Users tab.</p>
+        <button class="btn ghost" onclick="rotatePunchoutSecret()">Generate / rotate punchout secret</button>
+        <div class="out" id="secretOut"></div></div>
       <div class="card"><h3>Suppliers</h3><div id="supplierList"></div>
         <div class="out" id="inviteOut"></div>
         <label>code</label><input id="sCode" placeholder="ACME">
@@ -302,10 +310,20 @@ ACME-1001,50,,0.3500,1,USD      ← tier 3: qty 50+ (max_qty EMPTY = no upper li
   <!-- ================= USERS ================= -->
   <section class="panel" data-panel="users">
     <h2>Users &amp; privileges</h2>
-    <p class="explain">Admin only. Every account holds exactly the privileges you check here — <span class="mono">approve</span> needs <b>catalog_review</b>, releasing a version needs <b>catalog_publish</b>, and so on. The <span class="badge active">admin</span> role implies everything. You can't remove the last active admin — the tenant would lock itself out.</p>
-    <div class="card">
-      <div class="table-scroll"><table id="usersTable"></table></div>
-      <div class="out" id="usersOut"></div>
+    <p class="explain">Admin only. Accounts are <b>invite-only</b>: issue an invite below and send the link — nobody can sign themselves up, and nobody ever types a tenant id. Every account holds exactly the privileges you check here — <span class="mono">approve</span> needs <b>catalog_review</b>, releasing a version needs <b>catalog_publish</b>, and so on. The <span class="badge active">admin</span> role implies everything. You can't remove the last active admin — the tenant would lock itself out.</p>
+    <div class="grid">
+      <div class="card"><h3>Invite a user</h3>
+        <label>email</label><input id="invEmail" type="email" placeholder="colleague@company.com">
+        <label>role</label><select id="invRole"><option value="member" selected>member</option><option value="admin">admin</option></select>
+        <div id="invPrivWrap"><label>privileges (member only)</label><div class="privgrid" id="invPrivs"></div></div>
+        <button class="btn" onclick="createInvite()">Create invite</button>
+        <div class="out" id="inviteLinkOut"></div>
+        <div class="table-scroll" style="margin-top:14px"><table id="invitesTable"></table></div>
+      </div>
+      <div class="card"><h3>Accounts</h3>
+        <div class="table-scroll"><table id="usersTable"></table></div>
+        <div class="out" id="usersOut"></div>
+      </div>
     </div>
   </section>
 
@@ -362,6 +380,7 @@ function authTab(mode){
   tabLogin.classList.toggle("on", mode==="login");
   tabReg.classList.toggle("on", mode==="register");
   regOnly.style.display = mode==="register" ? "block" : "none";
+  loginOnly.style.display = mode==="register" ? "none" : "block";
   authGo.textContent = mode==="register" ? "Create account" : "Log in";
   authErr.textContent = "";
   aPass.value = "";  // never carry a typed password across modes
@@ -370,20 +389,46 @@ function slugTenant(raw){
   // Tenant ids are URL-safe slugs (they appear in SAP-facing URLs).
   return raw.trim().toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"").replace(/^-+/,"");
 }
+let previewTimer = null;
+function previewInvite(){
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async ()=>{
+    const t = aInvite.value.trim();
+    if(!t){ invitePreview.textContent = ""; return; }
+    try{
+      const r = await api(`/auth/invites/preview?token=${encodeURIComponent(t)}`);
+      invitePreview.textContent = `Invite for ${r.email} → tenant "${r.tenant_name}" as ${r.role}`;
+    }catch{ invitePreview.textContent = "Invite not recognized — it may have been used or expired."; }
+  }, 300);
+}
 async function authSubmit(){
   authErr.textContent = "";
-  aTenant.value = slugTenant(aTenant.value);
-  if(!aTenant.value){ authErr.textContent = "Tenant id needed — lowercase letters, numbers, dashes (e.g. pravin-co)"; return; }
-  const payload = { tenant_id:aTenant.value, email:aEmail.value.trim(), password:aPass.value };
-  if(AUTH_MODE==="register") payload.display_name = aName.value.trim();
+  let path, payload;
+  if(AUTH_MODE==="register"){
+    if(!aInvite.value.trim()){ authErr.textContent = "Paste your invite token — accounts are invite-only."; return; }
+    path = "/auth/register";
+    payload = { invite_token:aInvite.value.trim(), display_name:aName.value.trim(), password:aPass.value };
+  }else{
+    aTenant.value = slugTenant(aTenant.value);
+    if(!aTenant.value){ authErr.textContent = "Tenant id needed — lowercase letters, numbers, dashes (e.g. pravin-co)"; return; }
+    path = "/auth/login";
+    payload = { tenant_id:aTenant.value, email:aEmail.value.trim(), password:aPass.value };
+  }
   try{
-    const r = await api(`/auth/${AUTH_MODE}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const r = await api(path, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
     TOKEN = r.token; ME = r.user;
     sessionStorage.setItem("interlock_token", TOKEN);
     if(r.note) toast(r.note, 6000);
+    history.replaceState(null, "", location.pathname);  // drop #invite=… from the URL
     afterLogin();
   }catch(e){ authErr.textContent = e.message.replace(/^\d+:\s*/,""); }
 }
+// Arriving via an invite link (/admin#invite=TOKEN) lands straight on the
+// redeem form with the token filled in.
+(function(){
+  const m = location.hash.match(/#invite=(.+)/);
+  if(m){ setTimeout(()=>{ authTab("register"); aInvite.value = decodeURIComponent(m[1]); previewInvite(); }, 0); }
+})();
 async function logout(){
   try{ await api("/auth/logout", {method:"POST"}); }catch{}
   TOKEN=null; ME=null; sessionStorage.removeItem("interlock_token");
@@ -412,6 +457,8 @@ let PRIVS = [];
 async function loadUsers(){
   try{
     if(!PRIVS.length) PRIVS = await api("/auth/privileges");
+    invPrivs.innerHTML = PRIVS.map(p=>`<label><input type="checkbox" data-invpriv="${p}"> ${p}</label>`).join("");
+    loadInvites();
     const users = await api("/auth/users");
     usersTable.innerHTML = `<tr><th>user</th><th>role</th><th>privileges</th><th>active</th><th></th></tr>` +
       users.map(u=>`<tr data-uid="${u.id}">
@@ -436,7 +483,33 @@ async function saveUser(uid){
     toast(`Saved ${r.email} — ${r.role}, ${r.privileges.length} privilege(s)`); loadUsers();
   }catch(e){ toast(e.message, 6000); }
 }
-function esc(s){ return String(s??"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+async function loadInvites(){
+  try{
+    const invites = await api("/auth/invites");
+    invitesTable.innerHTML = invites.length
+      ? `<tr><th>pending invite</th><th>role</th><th>expires</th><th></th></tr>` +
+        invites.map(i=>`<tr><td class="mono" style="font-size:.78rem">${esc(i.email)}${i.expired?' <span class="badge expired">expired</span>':""}</td>
+          <td>${esc(i.role)}</td><td class="mono" style="font-size:.72rem">${esc(i.expires_at.slice(0,10))}</td>
+          <td><button class="btn ghost sm" onclick="revokeInvite('${i.id}')">Revoke</button></td></tr>`).join("")
+      : "";
+  }catch{ /* non-admins never reach this panel */ }
+}
+async function createInvite(){
+  const privileges = [...document.querySelectorAll("[data-invpriv]:checked")].map(c=>c.dataset.invpriv);
+  try{
+    const r = await api("/auth/invites", {method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({email:invEmail.value.trim(), role:invRole.value, privileges})});
+    inviteLinkOut.textContent =
+      `Invite for ${r.email} (${r.role}) — shown ONCE, send this link now:\n` +
+      `${location.origin}${r.register_path}\n\nExpires ${r.expires_at.slice(0,10)}. It dies on first use.`;
+    invEmail.value=""; loadInvites();
+  }catch(e){ toast(e.message, 6000); }
+}
+async function revokeInvite(id){
+  try{ await api(`/auth/invites/${id}`, {method:"DELETE"}); toast("Invite revoked"); loadInvites(); }
+  catch(e){ toast(e.message, 5000); }
+}
+function esc(s){ return String(s??"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function badge(v){ return `<span class="badge ${esc(v)}">${esc(v)}</span>`; }
 
 /* ---------- stepper ---------- */
@@ -469,7 +542,9 @@ setInterval(health, 5000);
 async function loadSetup(){
   try{
     const tenants = await api("/tenants");
-    document.getElementById("tenantList").innerHTML = tenants.map(t=>`<div>• <b>${esc(t.id)}</b> — ${esc(t.name)}</div>`).join("") || "<i>none yet</i>";
+    document.getElementById("tenantList").innerHTML = tenants.map(t=>
+      `<div>• <b>${esc(t.id)}</b> — ${esc(t.name)}
+       <div class="reasons">punchout secret: ${t.punchout_secret_configured?"configured ✓":"<b style='color:var(--oxide)'>NOT SET — punchout is closed until you generate one below</b>"} · PO key: ${t.po_key_configured?"configured ✓":"not set"}</div></div>`).join("") || "<i>none yet</i>";
     const sups = await api(`/suppliers?tenant_id=${TENANT}`);
     document.getElementById("supplierList").innerHTML = sups.map(s=>
       `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0">
@@ -479,6 +554,7 @@ async function loadSetup(){
     document.getElementById("sapPoints").innerHTML =
       `<label>punchout entry (Basis: web catalog URL)</label>`+
       `<div class="mono" style="font-size:.76rem;word-break:break-all">${location.origin}/api/v1/punchout/oci/start?tenant_id=${esc(TENANT)}</div>`+
+      `<div style="font-size:.78rem;color:var(--ink-soft);margin-top:4px">+ fixed parameter <span class="mono">PASSWORD</span> = your punchout secret (generate it on this page; put it in the SPRO call structure — requisitioners never see it). Calls without it are rejected.</div>`+
       `<label>po feed (Basis: PO output endpoint)</label>`+
       `<div class="mono" style="font-size:.76rem;word-break:break-all">POST ${location.origin}/api/v1/po/receive?tenant_id=${esc(TENANT)}<br>Header: X-PO-Key — generate it on the <a href="/orders">Orders</a> page</div>`+
       `<label>server-side settings</label>`+
@@ -509,6 +585,16 @@ async function inviteVendor(supplierId, code){
       `Vendor invite for ${code} (single use — send it to the vendor):\n` + r.invite_code +
       `\n\nThey register once at ${location.origin}/vendor and then see POs from every customer that links them.`;
   }catch(e){ toast(e.message, 5000); }
+}
+async function rotatePunchoutSecret(){
+  if(!confirm("Generate a new punchout secret? Any secret currently configured in SAP stops working immediately.")) return;
+  try{
+    const r = await api("/tenants/punchout-secret", {method:"POST"});
+    secretOut.textContent =
+      `PUNCHOUT SECRET (shown once — store it now):\n${r.punchout_secret}\n\n` +
+      `SPRO: add fixed parameter PASSWORD with this value to the web catalog call structure for\n${location.origin}${r.endpoint}`;
+    toast("Punchout secret rotated"); loadSetup();
+  }catch(e){ toast(e.message, 6000); }
 }
 async function createContract(){
   try{ await api("/contracts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({supplier_code:cSup.value||null,contract_no:cNo.value,valid_from:cFrom.value,valid_to:cTo.value,currency:cCur.value})}); toast("Contract created"); loadSetup(); }

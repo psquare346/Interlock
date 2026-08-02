@@ -9,6 +9,14 @@ The round trip:
      quantity changes inside SAP do NOT re-resolve — which is why the
      storefront surfaces the next quantity break.
 
+The front door is credentialed: every /oci/start call must carry the tenant's
+punchout secret (a fixed PASSWORD parameter in the SPRO catalog call
+structure — the requisitioner never sees it), OR a logged-in staff bearer
+token of the same tenant (the admin console's demo loop). A tenant with no
+secret configured is closed to punchout — there is no open fallback. This is
+what makes one tenant's catalog (and negotiated prices) unreachable to
+strangers and to every other tenant.
+
 For testing without an S/4 system, /oci/mock-hook plays SAP: point HOOK_URL
 at it and it echoes back whatever the cart posted.
 
@@ -18,23 +26,54 @@ set, dev obfuscation otherwise. Swap for KMS before production.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import html
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import PunchoutSession, Supplier
+from ..models import PunchoutSession, Supplier, Tenant
+from ..services.auth import staff_user_from_header
 from ..services.pricing import resolve_price
 from ..services.secrets import decrypt as _decrypt, encrypt as _encrypt
 from .pricing import _find_item
 
 router = APIRouter()
+
+# One message for every failure mode (unknown tenant, no secret configured,
+# wrong secret) so the endpoint is not an oracle for tenant ids or their state.
+_FRONT_DOOR_401 = (
+    "Punchout credential missing or invalid. SAP must send the tenant's "
+    "punchout secret as the PASSWORD parameter (SPRO catalog call structure); "
+    "a tenant admin can rotate it in the console."
+)
+
+# A punchout session is a bearer key to a tenant's catalog: cap its lifetime so
+# an old session id cannot serve the catalog forever. SAP opens a fresh one on
+# every punchout, so a working day of validity is generous.
+PUNCHOUT_SESSION_TTL = timedelta(hours=12)
+
+# Same length as a real SHA-256 hex digest, so the credential compare runs in
+# uniform time whether or not a tenant/secret exists (no timing oracle).
+_DUMMY_SECRET_HASH = "0" * 64
+
+
+def session_is_live(session: PunchoutSession | None) -> bool:
+    """Open AND within its TTL. The single definition of 'a session that may
+    still shop' — used by the storefront and every cart mutation."""
+    if session is None or session.status != "open":
+        return False
+    created = session.created_at
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return created + PUNCHOUT_SESSION_TTL >= datetime.now(timezone.utc)
 
 
 @router.get("/oci/start")
@@ -42,13 +81,33 @@ router = APIRouter()
 async def oci_start(
     request: Request,
     tenant_id: str = Query("demo"),
+    authorization: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    """Entry point SAP calls. Accepts HOOK_URL as query or form field."""
+    """Entry point SAP calls. Accepts HOOK_URL (and the punchout secret) as
+    query or form fields — SPRO call structures can send either."""
     params = dict(request.query_params)
     if request.method == "POST":
         form = await request.form()
         params.update({k: str(v) for k, v in form.items()})
+
+    # --- Front door: right tenant + right credential, or a same-tenant staff
+    # login. Checked before HOOK_URL so a stranger probing the endpoint learns
+    # nothing about parameter shapes past the 401.
+    tenant = db.get(Tenant, tenant_id)
+    secret = params.get("PASSWORD") or params.get("punchout_secret") or ""
+    staff = staff_user_from_header(db, authorization)
+    # Always hash the supplied secret and run compare_digest against a same-
+    # length target, so unknown-tenant / no-secret / wrong-secret take uniform
+    # time — the identical 401 body isn't undercut by a timing side channel.
+    supplied_hash = hashlib.sha256(secret.encode()).hexdigest()
+    stored_hash = tenant.punchout_secret_hash if tenant is not None else None
+    secret_ok = hmac.compare_digest(
+        supplied_hash, stored_hash or _DUMMY_SECRET_HASH
+    ) and stored_hash is not None
+    staff_ok = staff is not None and staff.tenant_id == tenant_id and tenant is not None
+    if not (staff_ok or secret_ok):
+        raise HTTPException(401, _FRONT_DOOR_401)
 
     hook_url = params.get("HOOK_URL") or params.get("hook_url")
     if not hook_url:
@@ -67,16 +126,15 @@ async def oci_start(
 
     # A real SAP punchout opens this URL in the employee's browser — hand them
     # the storefront page. API/JSON callers (tests, the admin console) get the
-    # session descriptor as before.
+    # session descriptor as before. The session id is the shopper's key from
+    # here on; the secret never appears in a URL the requisitioner can see.
     if "text/html" in (request.headers.get("accept") or ""):
-        return RedirectResponse(
-            f"/shop?session={session.id}&tenant_id={tenant_id}", status_code=302
-        )
+        return RedirectResponse(f"/shop?session={session.id}", status_code=302)
 
     return {
         "session_id": session.id,
         "oci_version": session.oci_version,
-        "storefront": f"/api/catalog/items?tenant_id={tenant_id}",
+        "storefront": f"/api/catalog/items?session={session.id}",
         "cart_add": f"/api/punchout/sessions/{session.id}/cart/add",
         "return_url": f"/api/punchout/sessions/{session.id}/return",
     }
@@ -92,10 +150,12 @@ def cart_add(session_id: str, body: CartAdd, db: Session = Depends(get_db)):
     session = db.get(PunchoutSession, session_id)
     if session is None:
         raise HTTPException(404, "Session not found")
-    if session.status != "open":
-        raise HTTPException(409, f"Session is {session.status}")
+    if not session_is_live(session):
+        raise HTTPException(409, "Session is closed or expired — start a new punchout")
 
-    item = _find_item(db, session.tenant_id, body.part)
+    # published_only: a rejected / in-review / superseded part must never be
+    # priced and pushed to SAP, even by a valid session that knows its part id.
+    item = _find_item(db, session.tenant_id, body.part, published_only=True)
     if item is None:
         raise HTTPException(404, f"No published item {body.part!r}")
 
@@ -130,8 +190,8 @@ def oci_return(
     session = db.get(PunchoutSession, session_id)
     if session is None:
         raise HTTPException(404, "Session not found")
-    if session.status != "open":
-        raise HTTPException(409, f"Session is {session.status}")
+    if not session_is_live(session):
+        raise HTTPException(409, "Session is closed or expired — start a new punchout")
     if not session.cart:
         raise HTTPException(409, "Cart is empty")
 

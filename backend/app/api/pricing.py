@@ -17,8 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import CatalogItem, Contract, ItemState, PriceTier, User
-from ..services.auth import require
+from ..models import CatalogItem, Contract, ItemState, PriceTier, User, VersionStatus
+from ..services.auth import get_current_user, require
 from ..services.pricing import (
     ParsedTier, parse_encoded_string, resolve_price, validate_ladder,
 )
@@ -26,14 +26,29 @@ from ..services.pricing import (
 router = APIRouter()
 
 
-def _find_item(db: Session, tenant_id: str, part: str) -> CatalogItem | None:
-    """Latest decided row for a part, preferring published-eligible states."""
+def _find_item(
+    db: Session, tenant_id: str, part: str, published_only: bool = False
+) -> CatalogItem | None:
+    """Latest decided row for a part in this tenant.
+
+    published_only=True restricts to rows that are actually live on the
+    storefront (a PUBLISHED version AND an approved state) — the punchout cart
+    MUST use this so a rejected / in-review / superseded part can never be
+    priced and pushed to SAP. The default (False) is for staff tooling that
+    legitimately works with not-yet-published catalog (e.g. tier upload)."""
     rows = db.scalars(
         select(CatalogItem).where(
             CatalogItem.tenant_id == tenant_id,
             CatalogItem.supplier_part_id == part,
         )
     ).all()
+    if published_only:
+        rows = [
+            r for r in rows
+            if r.version.status is VersionStatus.PUBLISHED
+            and r.state in (ItemState.AUTO_APPROVED, ItemState.APPROVED)
+        ]
+        return max(rows, key=lambda r: r.version.version_no) if rows else None
     usable = [r for r in rows if r.state in (ItemState.AUTO_APPROVED, ItemState.APPROVED)]
     pool = usable or rows
     return max(pool, key=lambda r: r.version.version_no) if pool else None
@@ -149,11 +164,17 @@ def upload_tiers(
 def resolve(
     part: str = Query(...),
     quantity: int = Query(1, ge=1),
-    tenant_id: str = Query("demo"),
     on: date | None = Query(None),
+    tenant_id: str | None = Query(None, deprecated=True,
+                                  description="Ignored — tenant comes from the "
+                                  "logged-in user, never the caller"),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    item = _find_item(db, tenant_id, part)
+    """Staff price-preview ("what SAP gets"). Tenant is derived from the login;
+    the tenant_id param is accepted but ignored so negotiated prices can never
+    be read across tenants."""
+    item = _find_item(db, user.tenant_id, part)
     if item is None:
         raise HTTPException(404, f"No catalog item {part!r}")
     r = resolve_price(db, item, quantity, on=on)
