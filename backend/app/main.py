@@ -84,6 +84,14 @@ def admin_ui():
     return FileResponse(FRONTEND / "admin.html")
 
 
+@app.get("/ops", include_in_schema=False)
+def ops_ui():
+    """Operator console — provision customers, manage tenant admins. Gated in
+    the browser by the OPERATOR_KEY (same key /api/ops/* checks), not a tenant
+    login, so it is deliberately NOT linked from the tenant admin console."""
+    return FileResponse(FRONTEND / "ops.html")
+
+
 @app.get("/orders", include_in_schema=False)
 def orders_ui():
     return FileResponse(FRONTEND / "orders.html")
